@@ -6,7 +6,7 @@ from typing import Tuple
 
 class StochasticStateModel(nn.Module):
     def __init__(
-        self, 
+        self,
         hidden_state_size: int,
         state_size: int,
         hidden_layer_size: int,

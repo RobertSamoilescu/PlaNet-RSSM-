@@ -5,11 +5,11 @@ from torch import Tensor
 
 class RewardModel(nn.Module):
     def __init__(
-        self, 
+        self,
         hidden_state_size: int,
         state_size: int,
         hidden_layer_size: int,
-     ) -> None:
+    ) -> None:
         super(RewardModel, self).__init__()
         input_size = hidden_state_size + state_size
         self.fc1 = nn.Linear(input_size, hidden_layer_size)

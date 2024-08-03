@@ -5,12 +5,12 @@ from torch import Tensor
 
 class EncoderModel(nn.Module):
     def __init__(
-            self, 
-            hidden_state_size: int, 
-            observation_size: int, 
-            state_size: int,
-            hidden_layer_size: int,
-        ) -> None:
+        self,
+        hidden_state_size: int,
+        observation_size: int,
+        state_size: int,
+        hidden_layer_size: int,
+    ) -> None:
         super(EncoderModel, self).__init__()
         input_size = hidden_state_size + observation_size
         self.fc1 = nn.Linear(input_size, hidden_layer_size)
@@ -23,4 +23,3 @@ class EncoderModel(nn.Module):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         return self.mean_head(x), self.log_std_head(x)
-        

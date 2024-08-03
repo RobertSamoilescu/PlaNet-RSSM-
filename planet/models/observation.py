@@ -5,7 +5,7 @@ from torch import Tensor
 
 class ObservationModel(nn.Module):
     def __init__(
-        self, 
+        self,
         hidden_state_size: int,
         state_size: int,
         observation_size: int,

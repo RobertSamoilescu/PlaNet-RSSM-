@@ -49,23 +49,31 @@ def latent_planning(
 
             # initialize state
             mean_state, log_std_state = current_state_belief
-            state = torch.distributions.Normal(mean_state, log_std_state.exp()).sample()
+            state = torch.distributions.Normal(
+                mean_state, log_std_state.exp()
+            ).sample()
 
             for t in range(H):
                 # compute the next hidden state
                 hidden_state = deterministic_state_model(
                     hidden_state=hidden_state,
                     state=state.reshape(1, 1, -1),
-                    action=candidate_actions[t].reshape(1, 1, -1)
+                    action=candidate_actions[t].reshape(1, 1, -1),
                 )
-                
+
                 # sample the next state
-                mean_state, log_std_state = stochastic_state_model(hidden_state=hidden_state.reshape(1, -1))
-                state = torch.distributions.Normal(mean_state, log_std_state.exp()).sample()
+                mean_state, log_std_state = stochastic_state_model(
+                    hidden_state=hidden_state.reshape(1, -1)
+                )
+                state = torch.distributions.Normal(
+                    mean_state, log_std_state.exp()
+                ).sample()
 
                 # compute the reward
-                reward_sum += reward_model(hidden_state=hidden_state.reshape(1, -1), state=state)
-        
+                reward_sum += reward_model(
+                    hidden_state=hidden_state.reshape(1, -1), state=state
+                )
+
             rewards.append(reward_sum.item())
             candidates_actions.append(candidate_actions)
 
@@ -88,6 +96,3 @@ def latent_planning(
 
     # return the first action mean
     return action_seq.actions[0].mean
-
-
-
