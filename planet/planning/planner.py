@@ -7,6 +7,7 @@ from tqdm import tqdm
 from planet.planning.action import ActionPlanner
 
 
+@torch.no_grad()
 def latent_planning(
     H: int,
     I: int,
@@ -34,7 +35,7 @@ def latent_planning(
     :param action_size: The size of the action space.
     :return: The first action
     """
-    action_seq = ActionPlanner(H=H, action_size=action_size)
+    action_seq = ActionPlanner(H=H, action_size=action_size).cuda()
 
     for i in range(I):
         rewards = []
@@ -89,7 +90,7 @@ def latent_planning(
 
         # compute mean and std of the top-K candidates
         mean = top_k_candidates.mean(dim=0)
-        std = top_k_candidates.std(dim=0)
+        std = torch.clip(top_k_candidates.std(dim=0), 0.01)
 
         # update the action sequence
         action_seq.update(mean=mean, std=std)

@@ -3,12 +3,14 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 import gym
+import math
 from typing import Dict
 from tqdm import tqdm
 
 from planet.dataset.buffer import SequenceBuffer
 from planet.dataset.env_objects import EnvSequence, EnvStep
 from planet.utils.sample import init_buffer
+from planet.utils.env import n_step_interaction
 from planet.planning.planner import latent_planning
 
 
@@ -65,6 +67,16 @@ def _compute_kl_divergence(
     ).sum()
 
 
+def _set_models_eval(models: Dict[str, nn.Module]):
+    for model in models.values():
+        model.eval()
+
+
+def _set_models_train(models: Dict[str, nn.Module]):
+    for model in models.values():
+        model.train()
+
+
 def model_train_step(
     buffer: SequenceBuffer,
     B: int,
@@ -85,15 +97,21 @@ def model_train_step(
     :param hidden_state_size: Size of the hidden state.
     :param state_size: Size of the state.
     """
+    _set_models_train(models)
+
     # define loss variables
     obs_loss = reward_loss = kl_div = 0
 
     # sample a batch of experiences
     batch = buffer.sample_batch(B, L)
+    batch.observations = batch.observations.cuda()
+    batch.actions = batch.actions.cuda()
+    batch.rewards = batch.rewards.cuda()
+    batch.dones = batch.dones.cuda()
 
     # initialize first hidden state
     # TODO: is this correct?
-    hidden_state = torch.zeros(1, B, hidden_state_size)
+    hidden_state = torch.zeros(1, B, hidden_state_size).cuda()
 
     # get the first approximation of the state
     # TODO: is this correct?
@@ -175,6 +193,104 @@ def model_train_step(
     return loss
 
 
+@torch.no_grad()
+def data_collection(
+    env: gym.Env,
+    buffer: SequenceBuffer,
+    T: int,
+    R: int,
+    H: int,
+    I: int,
+    J: int,
+    K: int,
+    models: Dict[str, nn.Module],
+    hidden_state_size: int,
+    action_size: int,
+):
+    """
+    Data collection step.
+
+    :param env: The environment.
+    :param buffer: Buffer containing sequences of environment steps.
+    :param T: Maximum number of steps per episode.
+    :param R: Action repeat.
+    :param H: Planning horizon distance.
+    :param I: Optimization iterations.
+    :param J: Candidates per iteration.
+    :param K: Top-K candidates to keep.
+    :param models: Dictionary containing the models.
+    :param hidden_state_size: Size of the hidden state.
+    :param action_size: Size of the action space.
+    :return: The episode reward.
+    """
+    _set_models_eval(models)
+
+    sequence = []
+    episode_reward = 0
+
+    # reset environment
+    obs, _ = env.reset()
+
+    # initialize hidden state and state belief
+    hidden_state = torch.zeros(1, 1, hidden_state_size).cuda()
+
+    for _ in tqdm(range(T // R)):
+        observation = torch.from_numpy(obs).reshape(1, -1).cuda()
+        mean_state, log_std_state = models["enc_model"](
+            hidden_state=hidden_state.reshape(1, -1),
+            observation=observation,
+        )
+
+        action = latent_planning(
+            H=H,
+            I=I,
+            J=J,
+            K=K,
+            hidden_state=hidden_state,
+            current_state_belief=(mean_state, log_std_state),
+            deterministic_state_model=models["det_state_model"],
+            stochastic_state_model=models["stoch_state_model"],
+            reward_model=models["reward_obs_model"],
+            action_size=action_size,
+        )
+
+        # add exploration noise
+        action += torch.randn_like(action) * math.sqrt(0.3)
+
+        # take action in the environment
+        next_obs, reward, terminated, truncated, _ = n_step_interaction(
+            env=env, n=R, action=action.cpu().numpy()
+        )
+
+        # update episode reward and add
+        # step to the sequence
+        episode_reward += reward
+        sequence.append(
+            EnvStep(
+                observation=torch.from_numpy(obs),
+                action=action.cpu(),
+                reward=reward,
+                done=0,
+            )
+        )
+
+        if terminated or truncated:
+            break
+
+        # update observation
+        obs = next_obs
+
+        # update hidden state
+        hidden_state = models["det_state_model"](
+            hidden_state=hidden_state,
+            state=mean_state.reshape(1, 1, -1),
+            action=action.reshape(1, 1, -1),
+        )
+
+    buffer.add_sequence(sequence)
+    return episode_reward
+
+
 def train(
     env: gym.Env,
     train_steps: int,
@@ -209,6 +325,8 @@ def train(
     :param models: Dictionary containing the models.
     :param optimizers: Dictionary containing the optimizers.
     :param hidden_state_size: Size of the hidden state.
+    :param state_size: Size of the state.
+    :param action_size: Size of the action space.
     """
     # running statitsics
     running_loss = None
@@ -240,77 +358,22 @@ def train(
                 else 0.99 * running_loss + 0.01 * loss
             )
 
-        if i % log_interval == 0:
-            print(f"Iter: {i}, Loss: {running_loss.item()}")
+            step = i * C + s
 
         # data collection
-        sequence = []
-        episode_reward = 0
-        obs, _ = env.reset()
-
-        # initialize hidden state and state belief
-        hidden_state = torch.zeros(1, 1, hidden_state_size)
-
-        for t in tqdm(range(T // R)):
-            observation = torch.from_numpy(obs).reshape(1, -1)
-            mean_state, log_std_state = models["enc_model"](
-                hidden_state=hidden_state.reshape(1, -1),
-                observation=observation,
-            )
-
-            action = latent_planning(
-                H=H,
-                I=I,
-                J=J,
-                K=K,
-                hidden_state=hidden_state,
-                current_state_belief=(mean_state, log_std_state),
-                deterministic_state_model=models["det_state_model"],
-                stochastic_state_model=models["stoch_state_model"],
-                reward_model=models["reward_obs_model"],
-                action_size=action_size,
-            )
-
-            # add exploration noise
-            action += torch.randn_like(action) * 0.3
-
-            # take action in the environment
-            reward_sum = 0
-            for _ in range(R):
-                _obs, _reward, terminated, truncated, _ = env.step(
-                    action.numpy()
-                )
-                reward_sum += _reward
-
-                done = terminated or truncated
-                if done:
-                    break
-
-            # add step to the sequence
-            sequence.append(
-                EnvStep(
-                    observation=torch.from_numpy(obs),
-                    action=action,
-                    reward=reward_sum,
-                    done=0,
-                )
-            )
-
-            # update episode reward
-            episode_reward += reward_sum
-
-            if done:
-                break
-
-            # update observation
-            obs = _obs
-
-            # update hidden state
-            hidden_state = models["det_state_model"](
-                hidden_state=hidden_state,
-                state=mean_state.reshape(1, 1, -1),
-                action=action.reshape(1, 1, -1),
-            )
+        episode_reward = data_collection(
+            env=env,
+            buffer=buffer,
+            T=T,
+            R=R,
+            H=H,
+            I=I,
+            J=J,
+            K=K,
+            models=models,
+            hidden_state_size=hidden_state_size,
+            action_size=action_size,
+        )
 
         # update running reward
         running_reward = (
@@ -318,8 +381,8 @@ def train(
             if running_reward is None
             else 0.99 * running_reward + 0.01 * episode_reward
         )
-        if i % log_interval == 0:
-            print(f"Iter: {i}, Reward: {running_reward}")
 
-        # add the sequence to the buffer
-        buffer.add_sequence(sequence)
+        if step % log_interval == 0:
+            print(
+                f"Iter: {step}, Loss: {running_loss.item()}, Reward: {running_reward}"
+            )

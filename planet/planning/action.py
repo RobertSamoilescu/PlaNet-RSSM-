@@ -36,3 +36,9 @@ class ActionPlanner:
     def update(self, mean: torch.Tensor, std: torch.Tensor) -> None:
         for i, action in enumerate(self.actions):
             action.update(mean[i], std[i])
+
+    def cuda(self):
+        for action in self.actions:
+            action._mean = action._mean.cuda()
+            action._std = action._std.cuda()
+        return self
