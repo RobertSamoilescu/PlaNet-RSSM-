@@ -4,13 +4,20 @@ from torch import Tensor
 
 
 class RewardModel(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int) -> None:
+    def __init__(
+        self, 
+        hidden_state_size: int,
+        state_size: int,
+        hidden_layer_size: int,
+     ) -> None:
         super(RewardModel, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, 1)
+        input_size = hidden_state_size + state_size
+        self.fc1 = nn.Linear(input_size, hidden_layer_size)
+        self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
+        self.fc3 = nn.Linear(hidden_layer_size, 1)
 
-    def forward(self, input: Tensor) -> Tensor:
-        x = torch.relu(self.fc1(input))
+    def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
+        x = torch.cat([hidden_state, state], dim=-1)
+        x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         return self.fc3(x)
