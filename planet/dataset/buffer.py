@@ -1,22 +1,16 @@
 import torch
+import random
+from collections import deque
 from typing import List, Optional
 from planet.dataset.env_objects import EnvStep, EnvSequence
 
 
 class SequenceBuffer:
     def __init__(self, max_len: int = 1_000) -> None:
-        self.max_len = max_len
-        self.len = 0
-
-        self.buffer: List[Optional[List[EnvStep]]] = [None] * max_len
-        self.idx = 0
+        self.buffer = deque(maxlen=max_len)
 
     def add_sequence(self, sequence: List[EnvStep]) -> None:
-        if self.len < self.max_len:
-            self.len += 1
-
-        self.buffer[self.idx] = sequence
-        self.idx = (self.idx + 1) % self.max_len
+        self.buffer.append(sequence)
 
     def _pad_sequence(self, sequence: List[EnvStep], L: int) -> List[EnvStep]:
         if len(sequence) == L:
@@ -38,9 +32,7 @@ class SequenceBuffer:
         return EnvSequence(observations, actions, rewards, dones)
 
     def sample_sequence(self, L: int) -> EnvSequence:
-        idx = torch.randint(0, self.len, (1,)).item()
-        sequence = self.buffer[idx]  # type: ignore[index]
-
+        sequence = random.sample(self.buffer, 1)[0]
         start_idx = torch.randint(0, len(sequence), (1,)).item()  # type: ignore[arg-type]  # noqa: E501
         end_idx = min(start_idx + L, len(sequence))  # type: ignore[arg-type]
 
