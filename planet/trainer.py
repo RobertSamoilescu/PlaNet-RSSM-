@@ -100,7 +100,7 @@ def train_step(
         state = enc_state_dist.rsample()
 
         # compute deterministic hidden state
-        next_hidden_state = models['det_state_model'](
+        hidden_state = models['det_state_model'](
             hidden_state=hidden_state,
             state=state.reshape(B, 1, state_size), 
             action=batch.actions[:, t-1:t]
@@ -108,7 +108,7 @@ def train_step(
 
         # compute next state based on the deterministic hidden state
         mean_next_state, log_std_next_state  = models['stoch_state_model'](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+            hidden_state=hidden_state.reshape(B, hidden_state_size),
         )
 
         # sample next state
@@ -118,20 +118,20 @@ def train_step(
         # compute next observation based on the 
         # hidden state and the next state
         next_obs = models['obs_model'](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+            hidden_state=hidden_state.reshape(B, hidden_state_size),
             state=next_state,
         )
 
         # compute next reward based on the hidden state 
         # and the next state
         next_reward = models['reward_obs_model'](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+            hidden_state=hidden_state.reshape(B, hidden_state_size),
             state=next_state,
         ).reshape(B)
 
         # compute next approximation of the state
         enc_mean_state, enc_log_std_state = models['enc_model'](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+            hidden_state=hidden_state.reshape(B, hidden_state_size),
             observation=batch.observations[:, t],
         )
         enc_state_dist = Normal(enc_mean_state, enc_log_std_state.exp())
@@ -187,8 +187,11 @@ def train(
     :param optimizers: Dictionary containing the optimizers.
     :param hidden_state_size: Size of the hidden state.
     """
+    running_loss = None
+
     for i in range(train_steps):
         loss = train_step(buffer, B, L, models, optimizers, hidden_state_size, state_size)
+        running_loss = loss if running_loss is None else 0.99 * running_loss + 0.01 * loss
 
         if i % log_interval == 0:
-            print(f"Loss: {loss.item()}")
+            print(f"Iter: {i}, Loss: {running_loss.item()}")
