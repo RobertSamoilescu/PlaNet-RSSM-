@@ -35,58 +35,55 @@ def latent_planning(
     :param action_size: The size of the action space.
     :return: The first action
     """
-    action_seq = ActionPlanner(H=H, action_size=action_size).cuda()
+    action_seq = ActionPlanner(H=H, action_size=action_size)
+    hidden_state = torch.tile(hidden_state, (J, 1))
 
     for i in range(I):
-        rewards = []
-        candidates_actions = []
+        reward_sum = torch.zeros((J, )).cuda()
 
-        for j in range(J):
-            reward_sum = 0
+        # sample candidate action sequence
+        # (J, H, action_size)
+        candidate_actions = action_seq.sample(J)
+        candidate_actions = candidate_actions.cuda()
 
-            # sample candidate action sequence
-            # (H, action_size)
-            candidate_actions = action_seq.sample()
+        # initialize state
+        # (1, state_size), (1, state_size)
+        # (J, state_size)
+        state = current_state_belief
+        state = torch.tile(state, (J, 1))
 
-            # initialize state
-            mean_state, log_std_state = current_state_belief
+        # save hidden state for the next iteration
+        hidden_state_i = hidden_state
+
+        for t in range(H):
+            # compute the next hidden state
+            hidden_state_i = deterministic_state_model(
+                hidden_state=hidden_state_i,
+                state=state.reshape(J, 1, -1),
+                action=candidate_actions[:, t].reshape(J, 1, -1),
+            )
+
+            # sample the next state
+            # (J, state_size)
+            # (J, state_size)
+            mean_state, log_std_state = stochastic_state_model(
+                hidden_state=hidden_state_i.reshape(J, -1)
+            )
             state = torch.distributions.Normal(
                 mean_state, log_std_state.exp()
             ).sample()
 
-            for t in range(H):
-                # compute the next hidden state
-                hidden_state = deterministic_state_model(
-                    hidden_state=hidden_state,
-                    state=state.reshape(1, 1, -1),
-                    action=candidate_actions[t].reshape(1, 1, -1),
-                )
+            # compute the reward
+            reward_sum += reward_model(
+                hidden_state=hidden_state_i.reshape(J, -1), 
+                state=state
+            ).reshape(J)
 
-                # sample the next state
-                mean_state, log_std_state = stochastic_state_model(
-                    hidden_state=hidden_state.reshape(1, -1)
-                )
-                state = torch.distributions.Normal(
-                    mean_state, log_std_state.exp()
-                ).sample()
-
-                # compute the reward
-                reward_sum += reward_model(
-                    hidden_state=hidden_state.reshape(1, -1), state=state
-                )
-
-            rewards.append(reward_sum.item())
-            candidates_actions.append(candidate_actions)
-
-        # stack the candidate actions
-        # (J, H, action_size)
-        candidates_actions = torch.stack(candidates_actions)
-        rewards = torch.tensor(rewards)
 
         # select the top-K candidates
         # (K, H, action_size)
-        top_k_indices = torch.argsort(rewards, descending=True)[:K]
-        top_k_candidates = candidates_actions[top_k_indices]
+        top_k_indices = torch.argsort(reward_sum, descending=True)[:K].tolist()
+        top_k_candidates = candidate_actions[top_k_indices]
 
         # compute mean and std of the top-K candidates
         mean = top_k_candidates.mean(dim=0)
@@ -96,4 +93,4 @@ def latent_planning(
         action_seq.update(mean=mean, std=std)
 
     # return the first action mean
-    return action_seq.actions[0].mean
+    return action_seq.mean[0]

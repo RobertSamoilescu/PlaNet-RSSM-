@@ -173,16 +173,12 @@ def model_train_step(
             batch, t, enc_state_dist, next_state_dist
         )
 
-    # compute average loss
-    obs_loss = obs_loss / (1 - batch.dones[:, 1:]).sum()
-    reward_loss = reward_loss / (1 - batch.dones[:, 1:]).sum()
-    kl_div = kl_div / (1 - batch.dones[:, 1:]).sum()
-
     # zero gradients
     _zero_grad(optimizers)
 
     # compute loss
     loss = obs_loss + reward_loss + kl_div
+    loss /= (1 - batch.dones[:, 1:]).sum()
     loss.backward()
 
     # clip gradients
@@ -240,6 +236,9 @@ def data_collection(
             hidden_state=hidden_state.reshape(1, -1),
             observation=observation,
         )
+        state = torch.distributions.Normal(
+            mean_state, log_std_state.exp()
+        ).sample()
 
         action = latent_planning(
             H=H,
@@ -247,7 +246,7 @@ def data_collection(
             J=J,
             K=K,
             hidden_state=hidden_state,
-            current_state_belief=(mean_state, log_std_state),
+            current_state_belief=state,
             deterministic_state_model=models["det_state_model"],
             stochastic_state_model=models["stoch_state_model"],
             reward_model=models["reward_obs_model"],
@@ -283,7 +282,7 @@ def data_collection(
         # update hidden state
         hidden_state = models["det_state_model"](
             hidden_state=hidden_state,
-            state=mean_state.reshape(1, 1, -1),
+            state=state.reshape(1, 1, -1),
             action=action.reshape(1, 1, -1),
         )
 
@@ -358,8 +357,6 @@ def train(
                 else 0.99 * running_loss + 0.01 * loss
             )
 
-            step = i * C + s
-
         # data collection
         episode_reward = data_collection(
             env=env,
@@ -379,10 +376,10 @@ def train(
         running_reward = (
             episode_reward
             if running_reward is None
-            else 0.99 * running_reward + 0.01 * episode_reward
+            else 0.9 * running_reward + 0.1 * episode_reward
         )
 
-        if step % log_interval == 0:
+        if i % log_interval == 0:
             print(
-                f"Iter: {step}, Loss: {running_loss.item()}, Reward: {running_reward}"
+                f"Iter: {i}, Loss: {running_loss.item()}, Reward: {running_reward}"
             )
