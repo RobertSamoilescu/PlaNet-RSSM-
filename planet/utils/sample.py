@@ -28,23 +28,25 @@ def sample_random_sequences(
 
         for _ in range(max_sequence_len):
             action = env.action_space.sample()
-            new_observation, reward, terminated, truncated, info = env.step(
+            new_observation, reward, terminated, truncated, _ = env.step(
                 action
             )
 
             # add step to the sequence
+            done = 1 if terminated or truncated else 0
             sequence.append(
                 EnvStep(
                     observation=torch.from_numpy(observation),
                     action=torch.from_numpy(action),
                     reward=reward,
-                    done=0,
+                    done=done,
                 )
             )
 
-            observation = new_observation
-            if terminated or truncated:
+            if done == 1:
                 break
+
+            observation = new_observation
 
         # add the sequence to the list of sequences
         sequences.append(sequence)

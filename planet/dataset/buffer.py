@@ -17,10 +17,10 @@ class SequenceBuffer:
             return sequence
 
         pad_step = EnvStep(
-            observation=sequence[-1].observation.zero_(),
-            action=sequence[-1].action.zero_(),
+            observation=torch.zeros_like(sequence[-1].observation),
+            action=torch.zeros_like(sequence[-1].action),
             reward=0.0,
-            done=True,
+            done=1,
         )
         return sequence + [pad_step] * (L - len(sequence))
 
@@ -38,12 +38,15 @@ class SequenceBuffer:
 
         sequence = sequence[start_idx:end_idx]  # type: ignore[index, misc]
         sequence = self._pad_sequence(sequence, L)
+        assert len(sequence) == L
         return self._create_sequence(sequence)
 
     def sample_batch(self, B: int, L: int) -> EnvSequence:
         sequences = [self.sample_sequence(L) for _ in range(B)]
-        observations = torch.stack([seq.observations for seq in sequences])
-        actions = torch.stack([seq.actions for seq in sequences])
-        rewards = torch.stack([seq.rewards for seq in sequences])
-        dones = torch.stack([seq.dones for seq in sequences])
+        observations = torch.stack(
+            [seq.observations for seq in sequences]
+        ).float()
+        actions = torch.stack([seq.actions for seq in sequences]).float()
+        rewards = torch.stack([seq.rewards for seq in sequences]).float()
+        dones = torch.stack([seq.dones for seq in sequences]).float()
         return EnvSequence(observations, actions, rewards, dones)

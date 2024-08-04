@@ -11,7 +11,7 @@ class ActionPlanner:
 
     def sample(self, n: int) -> torch.Tensor:
         dist = torch.distributions.Normal(self.mean, self.std)
-        return dist.sample((n, ))
+        return dist.sample((n,))
 
     def update(self, mean: torch.Tensor, std: torch.Tensor) -> None:
         self.mean = mean

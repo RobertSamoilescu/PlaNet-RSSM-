@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from torch import Tensor
 from typing import Tuple
 
@@ -18,6 +19,6 @@ class StochasticStateModel(nn.Module):
         self.log_std_head = nn.Linear(hidden_layer_size, state_size)
 
     def forward(self, hidden_state: Tensor) -> Tuple[Tensor, Tensor]:
-        x = torch.relu(self.fc1(hidden_state))
-        x = torch.relu(self.fc2(x))
+        x = F.relu(self.fc1(hidden_state))
+        x = F.relu(self.fc2(x))
         return self.mean_head(x), self.log_std_head(x)
