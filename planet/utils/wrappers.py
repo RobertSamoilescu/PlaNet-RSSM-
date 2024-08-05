@@ -19,6 +19,7 @@ class RepeatAction(gym.Wrapper):
         for _ in range(self._skip):
             obs, reward, terminated, truncated, info = self.env.step(action)
             total_reward += reward
+            obs = obs.astype("float32")
 
             if terminated or truncated:
                 break

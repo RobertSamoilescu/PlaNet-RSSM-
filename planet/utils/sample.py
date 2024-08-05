@@ -36,8 +36,8 @@ def sample_random_sequences(
             done = 1 if terminated or truncated else 0
             sequence.append(
                 EnvStep(
-                    observation=torch.from_numpy(observation),
-                    action=torch.from_numpy(action),
+                    observation=torch.from_numpy(observation).float(),
+                    action=torch.from_numpy(action).float(),
                     reward=reward,
                     done=done,
                 )

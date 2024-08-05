@@ -36,7 +36,7 @@ def latent_planning(
     :return: The first action
     """
     action_seq = ActionPlanner(H=H, action_size=action_size)
-    hidden_state = torch.tile(hidden_state, (J, 1))
+    hidden_state = hidden_state.repeat(1, J, 1)
 
     for i in range(I):
         reward_sum = torch.zeros((J,)).cuda()
@@ -46,13 +46,8 @@ def latent_planning(
         candidate_actions = action_seq.sample(J)
         candidate_actions = candidate_actions.cuda()
 
-        # initialize state
-        # (1, state_size), (1, state_size)
-        # (J, state_size)
-        state = current_state_belief
-        state = torch.tile(state, (J, 1))
-
-        # save hidden state for the next iteration
+        # initialize the state
+        state = current_state_belief.repeat(J, 1)
         hidden_state_i = hidden_state
 
         for t in range(H):
@@ -85,7 +80,7 @@ def latent_planning(
 
         # compute mean and std of the top-K candidates
         mean = top_k_candidates.mean(dim=0)
-        std = torch.clip(top_k_candidates.std(dim=0), 0.01)
+        std = (top_k_candidates - mean.unsqueeze(0)).abs().sum(dim=0) / (K - 1)
 
         # update the action sequence
         action_seq.update(mean=mean, std=std)

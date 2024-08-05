@@ -43,10 +43,8 @@ class SequenceBuffer:
 
     def sample_batch(self, B: int, L: int) -> EnvSequence:
         sequences = [self.sample_sequence(L) for _ in range(B)]
-        observations = torch.stack(
-            [seq.observations for seq in sequences]
-        ).float()
-        actions = torch.stack([seq.actions for seq in sequences]).float()
-        rewards = torch.stack([seq.rewards for seq in sequences]).float()
-        dones = torch.stack([seq.dones for seq in sequences]).float()
+        observations = torch.stack([seq.observations for seq in sequences])
+        actions = torch.stack([seq.actions for seq in sequences])
+        rewards = torch.stack([seq.rewards for seq in sequences])
+        dones = torch.stack([seq.dones for seq in sequences])
         return EnvSequence(observations, actions, rewards, dones)

@@ -8,9 +8,8 @@ from typing import Dict
 from tqdm import tqdm
 
 from planet.dataset.buffer import SequenceBuffer
-from planet.dataset.env_objects import EnvSequence, EnvStep
+from planet.dataset.env_objects import EnvStep
 from planet.utils.sample import init_buffer
-from planet.utils.wrappers import n_step_interaction
 from planet.planning.planner import latent_planning
 
 
@@ -197,7 +196,6 @@ def data_collection(
     env: gym.Env,
     buffer: SequenceBuffer,
     T: int,
-    R: int,
     H: int,
     I: int,
     J: int,
@@ -212,7 +210,6 @@ def data_collection(
     :param env: The environment.
     :param buffer: Buffer containing sequences of environment steps.
     :param T: Maximum number of steps per episode.
-    :param R: Action repeat.
     :param H: Planning horizon distance.
     :param I: Optimization iterations.
     :param J: Candidates per iteration.
@@ -233,7 +230,7 @@ def data_collection(
     # initialize hidden state and state belief
     hidden_state = torch.zeros(1, 1, hidden_state_size).cuda()
 
-    for _ in tqdm(range(T // R)):
+    for _ in tqdm(range(T)):
         observation = torch.from_numpy(obs).float().reshape(1, -1).cuda()
         enc_mean_state, enc_log_std_state = models["enc_model"](
             hidden_state=hidden_state.reshape(1, -1),
@@ -271,8 +268,8 @@ def data_collection(
         done = 1 if terminated or truncated else 0
         sequence.append(
             EnvStep(
-                observation=torch.from_numpy(obs),
-                action=action_cpu,
+                observation=torch.from_numpy(obs).float(),
+                action=action_cpu.float(),
                 reward=reward,
                 done=done,
             )
@@ -299,7 +296,6 @@ def train(
     env: gym.Env,
     train_steps: int,
     T: int,
-    R: int,
     S: int,
     C: int,
     B: int,
