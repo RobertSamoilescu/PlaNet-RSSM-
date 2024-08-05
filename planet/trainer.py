@@ -188,7 +188,7 @@ def model_train_step(
 
     # gradient step
     _gradient_step(optimizers)
-    return loss, obs_loss, reward_loss, kl_div
+    return loss.item(), obs_loss.item(), reward_loss.item(), kl_div.item()
 
 
 @torch.no_grad()
@@ -254,7 +254,7 @@ def data_collection(
         )
 
         # add exploration noise
-        action += torch.randn_like(action) * math.sqrt(0.1)
+        action += torch.randn_like(action) * math.sqrt(0.3)
 
         # take action in the environment
         action_cpu = action.cpu()
@@ -403,8 +403,8 @@ def train(
 
         if i % log_interval == 0:
             print(
-                f"Iter: {i}, Loss: {running_loss.item()}, Reward: {running_reward}"
+                f"Iter: {i}, Loss: {running_loss}, Reward: {running_reward}"
             )
             print(
-                f"Obs Loss: {running_obs_loss.item()}, Reward Loss: {running_reward_loss.item()}, KL Div: {running_kl_div.item()}"
+                f"Obs Loss: {running_obs_loss}, Reward Loss: {running_reward_loss}, KL Div: {running_kl_div}"
             )
