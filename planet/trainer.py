@@ -10,7 +10,7 @@ from tqdm import tqdm
 from planet.dataset.buffer import SequenceBuffer
 from planet.dataset.env_objects import EnvSequence, EnvStep
 from planet.utils.sample import init_buffer
-from planet.utils.env import n_step_interaction
+from planet.utils.wrappers import n_step_interaction
 from planet.planning.planner import latent_planning
 
 
@@ -234,7 +234,7 @@ def data_collection(
     hidden_state = torch.zeros(1, 1, hidden_state_size).cuda()
 
     for _ in tqdm(range(T // R)):
-        observation = torch.from_numpy(obs).reshape(1, -1).cuda()
+        observation = torch.from_numpy(obs).float().reshape(1, -1).cuda()
         enc_mean_state, enc_log_std_state = models["enc_model"](
             hidden_state=hidden_state.reshape(1, -1),
             observation=observation,
@@ -257,11 +257,12 @@ def data_collection(
         )
 
         # add exploration noise
-        action += torch.randn_like(action) * math.sqrt(0.3)
+        action += torch.randn_like(action) * math.sqrt(0.1)
 
         # take action in the environment
-        next_obs, reward, terminated, truncated, _ = n_step_interaction(
-            env=env, n=R, action=action.cpu().numpy()
+        action_cpu = action.cpu()
+        next_obs, reward, terminated, truncated, _ = env.step(
+            action_cpu.numpy()
         )
 
         # update episode reward and add
@@ -271,7 +272,7 @@ def data_collection(
         sequence.append(
             EnvStep(
                 observation=torch.from_numpy(obs),
-                action=action.cpu(),
+                action=action_cpu,
                 reward=reward,
                 done=done,
             )
@@ -320,7 +321,6 @@ def train(
     :param env: The environment.
     :param train_steps: Number of training steps.
     :param T: Maximum number of steps per episode.
-    :param R: Action repeat.
     :param S: Random seeds episodes.
     :param C: Collect interval
     :param B: Batch size.
@@ -389,7 +389,6 @@ def train(
             env=env,
             buffer=buffer,
             T=T,
-            R=R,
             H=H,
             I=I,
             J=J,
