@@ -191,6 +191,7 @@ def model_train_step(
     return loss.item(), obs_loss.item(), reward_loss.item(), kl_div.item()
 
 
+@torch.no_grad()
 def evaluate(
     env: gym.Env,
     buffer: SequenceBuffer,
@@ -278,7 +279,7 @@ def evaluate(
 
 
 
-@torch.no_grad()
+
 def data_collection(
     env: gym.Env,
     buffer: SequenceBuffer,
@@ -290,7 +291,7 @@ def data_collection(
     models: Dict[str, nn.Module],
     hidden_state_size: int,
     action_size: int,
-    action_noise: float = 0.3
+    action_noise: float = 0.1
 ):
     """
     Data collection step.
@@ -343,6 +344,7 @@ def train(
     action_size: int,
     log_interval: int = 10,
     evaluate_interval: int = 10,
+    action_noise: Optional[float] = None
 ) -> None:
     """
     Perform training.
@@ -425,6 +427,7 @@ def train(
             models=models,
             hidden_state_size=hidden_state_size,
             action_size=action_size,
+            action_noise=action_noise
         )
 
         # update running reward
