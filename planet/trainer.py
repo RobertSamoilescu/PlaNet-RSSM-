@@ -4,8 +4,8 @@ from torch.distributions import Normal
 
 import gym
 import math
-from typing import Dict
 from tqdm import tqdm
+from typing import Dict, Optional, Tuple, List
 
 from planet.dataset.buffer import SequenceBuffer
 from planet.dataset.env_objects import EnvStep
@@ -31,15 +31,15 @@ def _gradient_step(optimizers: Dict[str, torch.optim.Optimizer]):
 def _compute_observation_loss(
     gt_obs: torch.Tensor, obs: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
-    obs_dist = Normal(gt_obs, torch.ones_like(gt_obs))
-    return -(obs_dist.log_prob(obs).sum(axis=-1) * mask).sum()
+    mse_loss = torch.nn.functional.mse_loss(obs, gt_obs, reduction="none")
+    return (mse_loss.mean(axis=-1) * mask).sum()
 
 
 def _compute_reward_loss(
     gt_reward: torch.Tensor, reward: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
-    reward_dist = Normal(gt_reward, torch.ones_like(gt_reward))
-    return -(reward_dist.log_prob(reward) * mask).sum()
+    mse_loss = torch.nn.functional.mse_loss(reward, gt_reward, reduction="none")
+    return (mse_loss * mask).sum()
 
 
 def _compute_kl_divergence(
@@ -93,10 +93,10 @@ def model_train_step(
 
     # sample a batch of experiences
     batch = buffer.sample_batch(B, L)
-    batch.observations = batch.observations.cuda()
-    batch.actions = batch.actions.cuda()
-    batch.rewards = batch.rewards.cuda()
-    batch.dones = batch.dones.cuda()
+    batch.observations = batch.observations.float().cuda()
+    batch.actions = batch.actions.float().cuda()
+    batch.rewards = batch.rewards.float().cuda()
+    batch.dones = batch.dones.float().cuda()
 
     # initialize first hidden state
     # TODO: is this correct?
@@ -191,8 +191,7 @@ def model_train_step(
     return loss.item(), obs_loss.item(), reward_loss.item(), kl_div.item()
 
 
-@torch.no_grad()
-def data_collection(
+def evaluate(
     env: gym.Env,
     buffer: SequenceBuffer,
     T: int,
@@ -203,22 +202,8 @@ def data_collection(
     models: Dict[str, nn.Module],
     hidden_state_size: int,
     action_size: int,
-):
-    """
-    Data collection step.
-
-    :param env: The environment.
-    :param buffer: Buffer containing sequences of environment steps.
-    :param T: Maximum number of steps per episode.
-    :param H: Planning horizon distance.
-    :param I: Optimization iterations.
-    :param J: Candidates per iteration.
-    :param K: Top-K candidates to keep.
-    :param models: Dictionary containing the models.
-    :param hidden_state_size: Size of the hidden state.
-    :param action_size: Size of the action space.
-    :return: The episode reward.
-    """
+    action_noise: Optional[float] = None
+) -> Tuple[List[EnvStep], float]:
     _set_models_eval(models)
 
     sequence = []
@@ -254,7 +239,8 @@ def data_collection(
         )
 
         # add exploration noise
-        action += torch.randn_like(action) * math.sqrt(0.3)
+        if action_noise is not None:
+            action += torch.randn_like(action) * math.sqrt(action_noise)
 
         # take action in the environment
         action_cpu = action.cpu()
@@ -270,8 +256,8 @@ def data_collection(
             EnvStep(
                 observation=torch.from_numpy(obs).float(),
                 action=action_cpu.float(),
-                reward=reward,
-                done=done,
+                reward=float(reward),
+                done=float(done),
             )
         )
 
@@ -288,6 +274,52 @@ def data_collection(
             action=action.reshape(1, 1, -1),
         )
 
+    return sequence, episode_reward
+
+
+
+@torch.no_grad()
+def data_collection(
+    env: gym.Env,
+    buffer: SequenceBuffer,
+    T: int,
+    H: int,
+    I: int,
+    J: int,
+    K: int,
+    models: Dict[str, nn.Module],
+    hidden_state_size: int,
+    action_size: int,
+    action_noise: float = 0.3
+):
+    """
+    Data collection step.
+
+    :param env: The environment.
+    :param buffer: Buffer containing sequences of environment steps.
+    :param T: Maximum number of steps per episode.
+    :param H: Planning horizon distance.
+    :param I: Optimization iterations.
+    :param J: Candidates per iteration.
+    :param K: Top-K candidates to keep.
+    :param models: Dictionary containing the models.
+    :param hidden_state_size: Size of the hidden state.
+    :param action_size: Size of the action space.
+    :return: The episode reward.
+    """
+    sequence, episode_reward = evaluate(
+        env=env,
+        buffer=buffer,
+        T=T,
+        H=H,
+        I=I,
+        J=J,
+        K=K,
+        models=models,
+        hidden_state_size=hidden_state_size,
+        action_size=action_size,
+        action_noise=action_noise
+    )
     buffer.add_sequence(sequence)
     return episode_reward
 
@@ -310,6 +342,7 @@ def train(
     state_size: int,
     action_size: int,
     log_interval: int = 10,
+    evaluate_interval: int = 10,
 ) -> None:
     """
     Perform training.
@@ -407,4 +440,21 @@ def train(
             )
             print(
                 f"Obs Loss: {running_obs_loss}, Reward Loss: {running_reward_loss}, KL Div: {running_kl_div}"
+            )
+
+        if i % evaluate_interval == 0:
+            _, episode_reward = evaluate(
+                env=env,
+                buffer=buffer,
+                T=T,
+                H=H,
+                I=I,
+                J=J,
+                K=K,
+                models=models,
+                hidden_state_size=hidden_state_size,
+                action_size=action_size,
+            )
+            print(
+                f"Evaluation: Iter: {i}, Reward: {episode_reward}"
             )
