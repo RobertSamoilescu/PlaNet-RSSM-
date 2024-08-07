@@ -32,6 +32,7 @@ def _compute_observation_loss(
     gt_obs: torch.Tensor, obs: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
     mse_loss = torch.nn.functional.mse_loss(obs, gt_obs, reduction="none")
+    mse_loss = mse_loss.reshape(mse_loss.shape[0], -1)
     return (mse_loss.mean(axis=-1) * mask).sum()
 
 
