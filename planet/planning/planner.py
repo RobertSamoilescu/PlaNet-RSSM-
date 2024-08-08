@@ -36,7 +36,7 @@ def latent_planning(
     :return: The first action
     """
     action_seq = ActionPlanner(H=H, action_size=action_size)
-    hidden_state = hidden_state.repeat(1, J, 1)
+    hidden_state = hidden_state.repeat(J, 1)
 
     for i in range(I):
         reward_sum = torch.zeros((J,)).cuda()
@@ -54,23 +54,20 @@ def latent_planning(
             # compute the next hidden state
             hidden_state_i = deterministic_state_model(
                 hidden_state=hidden_state_i,
-                state=state.reshape(J, 1, -1),
-                action=candidate_actions[:, t].reshape(J, 1, -1),
+                state=state,
+                action=candidate_actions[:, t],
             )
 
             # sample the next state
             # (J, state_size)
-            # (J, state_size)
-            mean_state, log_std_state = stochastic_state_model(
-                hidden_state=hidden_state_i.reshape(J, -1)
+            mean_state, std_state = stochastic_state_model(
+                hidden_state=hidden_state_i
             )
-            state = torch.distributions.Normal(
-                mean_state, log_std_state.exp()
-            ).sample()
+            state = torch.distributions.Normal(mean_state, std_state).sample()
 
             # compute the reward
             reward_sum += reward_model(
-                hidden_state=hidden_state_i.reshape(J, -1), state=state
+                hidden_state=hidden_state_i, state=state
             ).reshape(J)
 
         # select the top-K candidates

@@ -33,27 +33,29 @@ def _compute_observation_loss(
 ) -> torch.Tensor:
     mse_loss = torch.nn.functional.mse_loss(obs, gt_obs, reduction="none")
     mse_loss = mse_loss.reshape(mse_loss.shape[0], -1)
-    return (mse_loss.mean(axis=-1) * mask).sum()
+    return 0.5 * (mse_loss.sum(axis=-1) * mask).sum()
 
 
 def _compute_reward_loss(
     gt_reward: torch.Tensor, reward: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
-    mse_loss = torch.nn.functional.mse_loss(reward, gt_reward, reduction="none")
-    return (mse_loss * mask).sum()
+    mse_loss = torch.nn.functional.mse_loss(
+        reward, gt_reward, reduction="none"
+    )
+    return 0.5 * (mse_loss * mask).sum()
 
 
 def _compute_kl_divergence(
     enc_state_dist: Normal,
-    next_state_dist: Normal,
+    state_dist: Normal,
     mask: torch.Tensor,
+    free_nats: float,
 ) -> torch.Tensor:
-    return (
-        torch.distributions.kl.kl_divergence(
-            enc_state_dist, next_state_dist
-        ).sum(axis=-1)
-        * mask
-    ).sum()
+    kl = torch.distributions.kl_divergence(enc_state_dist, state_dist).sum(
+        dim=-1
+    )
+    kl = kl.clamp(min=free_nats)
+    return (kl * mask).sum()
 
 
 def _set_models_eval(models: Dict[str, nn.Module]):
@@ -75,6 +77,7 @@ def model_train_step(
     hidden_state_size: int,
     state_size: int,
     action_size: int,
+    free_nats: float = 3.0,
 ) -> torch.Tensor:
     """
     Perform a single training step.
@@ -90,7 +93,9 @@ def model_train_step(
     _set_models_train(models)
 
     # define loss variables
-    obs_loss = reward_loss = kl_div = 0
+    obs_loss = 0
+    reward_loss = 0
+    kl_div = 0
 
     # sample a batch of experiences
     batch = buffer.sample_batch(B, L)
@@ -101,45 +106,48 @@ def model_train_step(
 
     # initialize first hidden state
     # TODO: is this correct?
-    hidden_state = torch.zeros(1, B, hidden_state_size).cuda()
+    hidden_state = torch.zeros(B, hidden_state_size).cuda()
 
     # get the first approximation of the state
     # TODO: is this correct?
-    enc_mean_state, enc_log_std_state = models["enc_model"](
+    enc_mean_state, enc_std_state = models["enc_model"](
         hidden_state=hidden_state.reshape(B, hidden_state_size),
         observation=batch.observations[:, 0],
     )
-    enc_state_dist = Normal(enc_mean_state, enc_log_std_state.exp())
+    enc_state_dist = Normal(enc_mean_state, enc_std_state)
     enc_state = enc_state_dist.rsample()
 
     for t in range(1, L):
+
         # compute deterministic hidden state
         next_hidden_state = models["det_state_model"](
             hidden_state=hidden_state,
-            state=enc_state.reshape(B, 1, state_size),
-            action=batch.actions[:, t - 1].reshape(B, 1, action_size),
+            state=enc_state,
+            action=batch.actions[:, t - 1],
         )
 
         # compute the prior distribution of the next state
-        mean_next_state, log_std_next_state = models["stoch_state_model"](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+        mean_next_state, std_next_state = models["stoch_state_model"](
+            next_hidden_state
         )
-        next_state_dist = Normal(mean_next_state, log_std_next_state.exp())
+        next_state_dist = Normal(mean_next_state, std_next_state)
 
         # compute next approximation of the state
-        enc_next_mean_state, enc_log_std_next_state = models["enc_model"](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+        enc_next_mean_state, enc_std_next_state = models["enc_model"](
+            hidden_state=next_hidden_state,
             observation=batch.observations[:, t],
         )
-        enc_next_state_dist = Normal(
-            enc_next_mean_state, enc_log_std_next_state.exp()
-        )
+
+        enc_next_state_dist = Normal(enc_next_mean_state, enc_std_next_state)
 
         # compute the kl divergence between the posterior
         # and the prior of the state
         mask = 1 - batch.dones[:, t - 1]
         kl_div += _compute_kl_divergence(
-            enc_next_state_dist, next_state_dist, mask
+            enc_state_dist=enc_next_state_dist,
+            state_dist=next_state_dist,
+            mask=mask,
+            free_nats=free_nats,
         )
 
         # sample next state
@@ -148,14 +156,14 @@ def model_train_step(
         # compute next observation based on the
         # hidden state and the next state
         obs = models["obs_model"](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+            hidden_state=next_hidden_state,
             state=enc_next_state,
         )
 
         # compute next reward based on the hidden state
         # and the next state
         reward = models["reward_obs_model"](
-            hidden_state=next_hidden_state.reshape(B, hidden_state_size),
+            hidden_state=next_hidden_state,
             state=enc_next_state,
         ).reshape(B)
 
@@ -185,7 +193,7 @@ def model_train_step(
     loss.backward()
 
     # clip gradients
-    _clip_grad_norm(models)
+    _clip_grad_norm(models, 1000)
 
     # gradient step
     _gradient_step(optimizers)
@@ -195,7 +203,6 @@ def model_train_step(
 @torch.no_grad()
 def evaluate(
     env: gym.Env,
-    buffer: SequenceBuffer,
     T: int,
     H: int,
     I: int,
@@ -204,7 +211,7 @@ def evaluate(
     models: Dict[str, nn.Module],
     hidden_state_size: int,
     action_size: int,
-    action_noise: Optional[float] = None
+    action_noise: Optional[float] = None,
 ) -> Tuple[List[EnvStep], float]:
     _set_models_eval(models)
 
@@ -215,16 +222,16 @@ def evaluate(
     obs, _ = env.reset()
 
     # initialize hidden state and state belief
-    hidden_state = torch.zeros(1, 1, hidden_state_size).cuda()
+    hidden_state = torch.zeros(1, hidden_state_size).cuda()
 
-    for _ in tqdm(range(T)):
-        observation = torch.from_numpy(obs).float().reshape(1, -1).cuda()
-        enc_mean_state, enc_log_std_state = models["enc_model"](
-            hidden_state=hidden_state.reshape(1, -1),
+    while True:
+        observation = torch.from_numpy(obs).float().unsqueeze(0).cuda()
+        enc_mean_state, enc_std_state = models["enc_model"](
+            hidden_state=hidden_state,
             observation=observation,
         )
         enc_state = torch.distributions.Normal(
-            enc_mean_state, enc_log_std_state.exp()
+            enc_mean_state, enc_std_state
         ).sample()
 
         action = latent_planning(
@@ -272,13 +279,11 @@ def evaluate(
         # update hidden state
         hidden_state = models["det_state_model"](
             hidden_state=hidden_state,
-            state=enc_state.reshape(1, 1, -1),
-            action=action.reshape(1, 1, -1),
+            state=enc_state,
+            action=action.unsqueeze(0),
         )
 
     return sequence, episode_reward
-
-
 
 
 def data_collection(
@@ -292,7 +297,7 @@ def data_collection(
     models: Dict[str, nn.Module],
     hidden_state_size: int,
     action_size: int,
-    action_noise: float = 0.1
+    action_noise: float = 0.1,
 ):
     """
     Data collection step.
@@ -311,7 +316,6 @@ def data_collection(
     """
     sequence, episode_reward = evaluate(
         env=env,
-        buffer=buffer,
         T=T,
         H=H,
         I=I,
@@ -320,7 +324,7 @@ def data_collection(
         models=models,
         hidden_state_size=hidden_state_size,
         action_size=action_size,
-        action_noise=action_noise
+        action_noise=action_noise,
     )
     buffer.add_sequence(sequence)
     return episode_reward
@@ -345,7 +349,8 @@ def train(
     action_size: int,
     log_interval: int = 10,
     evaluate_interval: int = 10,
-    action_noise: Optional[float] = None
+    action_noise: Optional[float] = None,
+    free_nats: float = 3.0,
 ) -> None:
     """
     Perform training.
@@ -380,7 +385,7 @@ def train(
     for i in range(train_steps):
 
         # model fitting
-        for s in range(C):
+        for s in tqdm(range(C), desc="Model fitting"):
             loss, obs_loss, reward_loss, kl_div = model_train_step(
                 buffer=buffer,
                 B=B,
@@ -390,6 +395,7 @@ def train(
                 hidden_state_size=hidden_state_size,
                 state_size=state_size,
                 action_size=action_size,
+                free_nats=free_nats,
             )
 
             running_loss = (
@@ -428,7 +434,7 @@ def train(
             models=models,
             hidden_state_size=hidden_state_size,
             action_size=action_size,
-            action_noise=action_noise
+            action_noise=action_noise,
         )
 
         # update running reward
@@ -439,9 +445,7 @@ def train(
         )
 
         if i % log_interval == 0:
-            print(
-                f"Iter: {i}, Loss: {running_loss}, Reward: {running_reward}"
-            )
+            print(f"Iter: {i}, Loss: {running_loss}, Reward: {running_reward}")
             print(
                 f"Obs Loss: {running_obs_loss}, Reward Loss: {running_reward_loss}, KL Div: {running_kl_div}"
             )
@@ -449,7 +453,6 @@ def train(
         if i % evaluate_interval == 0:
             _, episode_reward = evaluate(
                 env=env,
-                buffer=buffer,
                 T=T,
                 H=H,
                 I=I,
@@ -459,6 +462,4 @@ def train(
                 hidden_state_size=hidden_state_size,
                 action_size=action_size,
             )
-            print(
-                f"Evaluation: Iter: {i}, Reward: {episode_reward}"
-            )
+            print(f"Evaluation: Iter: {i}, Reward: {episode_reward}")

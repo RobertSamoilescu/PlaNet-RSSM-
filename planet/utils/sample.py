@@ -26,7 +26,7 @@ def sample_random_sequences(
         sequence = []
         observation, _ = env.reset()
 
-        for _ in range(max_sequence_len):
+        while True:
             action = env.action_space.sample()
             new_observation, reward, terminated, truncated, _ = env.step(
                 action

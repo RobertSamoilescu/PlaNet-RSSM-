@@ -33,7 +33,7 @@ class SequenceBuffer:
 
     def sample_sequence(self, L: int) -> EnvSequence:
         sequence = random.sample(self.buffer, 1)[0]
-        start_idx = torch.randint(0, len(sequence), (1,)).item()  # type: ignore[arg-type]  # noqa: E501
+        start_idx = torch.randint(0, max(len(sequence) - L, 0) + 1, (1,)).item()  # type: ignore[arg-type]  # noqa: E501
         end_idx = min(start_idx + L, len(sequence))  # type: ignore[arg-type]
 
         sequence = sequence[start_idx:end_idx]  # type: ignore[index, misc]

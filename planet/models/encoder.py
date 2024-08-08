@@ -16,14 +16,18 @@ class EncoderModel(nn.Module):
         input_size = hidden_state_size + observation_size
         self.fc1 = nn.Linear(input_size, hidden_layer_size)
         self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
+        self.fc3 = nn.Linear(hidden_layer_size, hidden_layer_size)
         self.mean_head = nn.Linear(hidden_layer_size, state_size)
-        self.log_std_head = nn.Linear(hidden_layer_size, state_size)
+        self.std_head = nn.Linear(hidden_layer_size, state_size)
 
     def forward(self, hidden_state: Tensor, observation: Tensor) -> Tensor:
         x = torch.cat([hidden_state, observation], dim=-1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.mean_head(x), self.log_std_head(x)
+        x = F.relu(self.fc3(x))
+        mean = self.mean_head(x)
+        std = F.softplus(self.std_head(x)) + 0.1
+        return mean, std
 
 
 class Encoder(nn.Module):
@@ -39,9 +43,16 @@ class Encoder(nn.Module):
         for h_dim in hidden_dims:
             modules.append(
                 nn.Sequential(
-                    nn.Conv2d(in_channels, out_channels=h_dim, kernel_size=3, stride=2, padding=1),
+                    nn.Conv2d(
+                        in_channels,
+                        out_channels=h_dim,
+                        kernel_size=3,
+                        stride=2,
+                        padding=1,
+                    ),
                     nn.BatchNorm2d(h_dim),
-                    nn.LeakyReLU())
+                    nn.LeakyReLU(),
+                )
             )
             in_channels = h_dim
 
@@ -51,7 +62,7 @@ class Encoder(nn.Module):
     def forward(self, x) -> Tensor:
         x = self.encoder(x)
         x = x.view(x.shape[0], -1)
-        return self.fc(x)
+        return F.relu(self.fc(x))
 
 
 class ImageEncoderModel(nn.Module):
@@ -65,16 +76,22 @@ class ImageEncoderModel(nn.Module):
     ) -> None:
         super(ImageEncoderModel, self).__init__()
         input_size = hidden_state_size + observation_size
-        
-        self.obs_encoder = Encoder(in_channels=in_channels, d_latent=observation_size)
+
+        self.obs_encoder = Encoder(
+            in_channels=in_channels, d_latent=observation_size
+        )
         self.fc1 = nn.Linear(input_size, hidden_layer_size)
         self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
+        self.fc3 = nn.Linear(hidden_layer_size, hidden_layer_size)
         self.mean_head = nn.Linear(hidden_layer_size, state_size)
-        self.log_std_head = nn.Linear(hidden_layer_size, state_size)
+        self.std_head = nn.Linear(hidden_layer_size, state_size)
 
     def forward(self, hidden_state: Tensor, observation: Tensor) -> Tensor:
         observation = self.obs_encoder(observation)
         x = torch.cat([hidden_state, observation], dim=-1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.mean_head(x), self.log_std_head(x)
+        x = F.relu(self.fc3(x))
+        mean = self.mean_head(x)
+        std = F.softplus(self.std_head(x)) + 0.1
+        return mean, std

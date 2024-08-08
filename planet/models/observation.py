@@ -17,13 +17,15 @@ class ObservationModel(nn.Module):
 
         self.fc1 = nn.Linear(input_size, hidden_layer_size)
         self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
-        self.fc3 = nn.Linear(hidden_layer_size, observation_size)
+        self.fc3 = nn.Linear(hidden_layer_size, hidden_layer_size)
+        self.fc4 = nn.Linear(hidden_layer_size, observation_size)
 
     def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
         x = torch.cat([hidden_state, state], dim=-1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        x = F.relu(self.fc3(x))
+        return self.fc4(x)
 
 
 class Decoder(nn.Module):
@@ -40,21 +42,34 @@ class Decoder(nn.Module):
         for i in range(len(hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.ConvTranspose2d(hidden_dims[i], hidden_dims[i + 1], kernel_size=3, stride=2,
-                                       padding=1, output_padding=1),
+                    nn.ConvTranspose2d(
+                        hidden_dims[i],
+                        hidden_dims[i + 1],
+                        kernel_size=3,
+                        stride=2,
+                        padding=1,
+                        output_padding=1,
+                    ),
                     nn.BatchNorm2d(hidden_dims[i + 1]),
-                    nn.LeakyReLU())
+                    nn.LeakyReLU(),
+                )
             )
 
         self.decoder = nn.Sequential(*modules)
         self.final_layer = nn.Sequential(
-            nn.ConvTranspose2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=2,
-                               padding=1, output_padding=1),
+            nn.ConvTranspose2d(
+                hidden_dims[-1],
+                hidden_dims[-1],
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                output_padding=1,
+            ),
             nn.BatchNorm2d(hidden_dims[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(hidden_dims[-1], out_channels=3,
-                      kernel_size=3, padding=1),
-            nn.Tanh()
+            nn.Conv2d(
+                hidden_dims[-1], out_channels=3, kernel_size=3, padding=1
+            ),
         )
 
     def forward(self, z: torch.Tensor):
@@ -62,8 +77,8 @@ class Decoder(nn.Module):
         x = x.view(-1, 512, 2, 2)
         x = self.decoder(x)
         return self.final_layer(x)
-    
-    
+
+
 class ImageObservationModel(nn.Module):
     def __init__(
         self,
@@ -78,12 +93,16 @@ class ImageObservationModel(nn.Module):
 
         self.fc1 = nn.Linear(input_size, hidden_layer_size)
         self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
-        self.fc3 = nn.Linear(hidden_layer_size, observation_size)
-        self.decoder = Decoder(d_latent=state_size, out_channels=out_channels)
+        self.fc3 = nn.Linear(hidden_layer_size, hidden_layer_size)
+        self.fc4 = nn.Linear(hidden_layer_size, observation_size)
+        self.decoder = Decoder(
+            d_latent=observation_size, out_channels=out_channels
+        )
 
     def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
         x = torch.cat([hidden_state, state], dim=-1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
         return self.decoder(x)
