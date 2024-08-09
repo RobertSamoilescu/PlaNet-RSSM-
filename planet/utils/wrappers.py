@@ -35,8 +35,8 @@ class RepeatActionWrapper(gym.Wrapper):
 class GymPixelWrapper:
     """Wrapper for gym environment"""
 
-    def __init__(self, domain_name: str, task_name: str, render_kwargs: dict):
-        self._env = suite.load(domain_name=domain_name, task_name=task_name)
+    def __init__(self, domain_name: str, task_name: str, task_kwargs: dict, render_kwargs: dict):
+        self._env = suite.load(domain_name=domain_name, task_name=task_name, task_kwargs=task_kwargs)
         self._env = pixels.Wrapper(self._env, render_kwargs=render_kwargs)
 
     @property

@@ -2,15 +2,19 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
+import os
 import gym
 import math
+import numpy as np
 from tqdm import tqdm
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Any
 
 from planet.dataset.buffer import SequenceBuffer
 from planet.dataset.env_objects import EnvStep
 from planet.utils.sample import init_buffer
+from planet.utils.envs import make_env
 from planet.planning.planner import latent_planning
+
 
 
 def _zero_grad(optimizers: Dict[str, torch.optim.Optimizer]):
@@ -66,7 +70,29 @@ def _set_models_eval(models: Dict[str, nn.Module]):
 def _set_models_train(models: Dict[str, nn.Module]):
     for model in models.values():
         model.train()
+        
+        
+def save_models(models: Dict[str, nn.Module], optimizers: Dict[str, torch.optim.Optimizer], path: str):
+    checkpoint = {}
+    
+    for key, model in models.items():
+        checkpoint[key] = model.state_dict()
+        
+    for key, optimizer in optimizers.items():
+        checkpoint[key] = optimizer.state_dict()
+        
+    torch.save(checkpoint, path)
+    
 
+def load_models(models: Dict[str, nn.Module], optimizers: Dict[str, torch.optim.Optimizer], path: str):
+    checkpoint = torch.load(path)
+    
+    for key, model in models.items():
+        model.load_state_dict(checkpoint[key])
+        
+    for key, optimizer in optimizers.items():
+        optimizer.load_state_dict(checkpoint[key])
+        
 
 def model_train_step(
     buffer: SequenceBuffer,
@@ -201,9 +227,8 @@ def model_train_step(
 
 
 @torch.no_grad()
-def evaluate(
+def collect_episode(
     env: gym.Env,
-    T: int,
     H: int,
     I: int,
     J: int,
@@ -286,10 +311,49 @@ def evaluate(
     return sequence, episode_reward
 
 
+def evaluate(
+    env_config: Dict[str, Any],
+    H: int,
+    I: int,
+    J: int,
+    K: int,
+    models: Dict[str, nn.Module],
+    hidden_state_size: int,
+    action_size: int,
+    action_noise: Optional[float] = None,
+    num_eval_episodes: int = 10,
+    seed: int = 0
+) -> float:
+    _env_config = env_config.copy() 
+    if env_config["env_type"] == "gym":
+        env_config["seed"] = seed  
+    elif env_config["env_type"] == "dm_control":
+        env_config["task_kwargs"] = env_config.get("task_kwargs", {})
+        env_config["task_kwargs"]["random"] = seed
+        
+    env = make_env(env_config)
+    episode_rewards = []
+    
+    for _ in tqdm(range(num_eval_episodes), desc="Evaluation"):
+        _, episode_reward = collect_episode(
+            env=env,
+            H=H,
+            I=I,
+            J=J,
+            K=K,
+            models=models,
+            hidden_state_size=hidden_state_size,
+            action_size=action_size,
+            action_noise=None,
+        )
+        episode_rewards.append(episode_reward)
+    
+    return np.mean(episode_rewards)
+
+
 def data_collection(
     env: gym.Env,
     buffer: SequenceBuffer,
-    T: int,
     H: int,
     I: int,
     J: int,
@@ -304,7 +368,6 @@ def data_collection(
 
     :param env: The environment.
     :param buffer: Buffer containing sequences of environment steps.
-    :param T: Maximum number of steps per episode.
     :param H: Planning horizon distance.
     :param I: Optimization iterations.
     :param J: Candidates per iteration.
@@ -314,9 +377,8 @@ def data_collection(
     :param action_size: Size of the action space.
     :return: The episode reward.
     """
-    sequence, episode_reward = evaluate(
+    sequence, episode_reward = collect_episode(
         env=env,
-        T=T,
         H=H,
         I=I,
         J=J,
@@ -331,9 +393,8 @@ def data_collection(
 
 
 def train(
-    env: gym.Env,
+    env_config: Dict[str, Any],
     train_steps: int,
-    T: int,
     S: int,
     C: int,
     B: int,
@@ -349,15 +410,16 @@ def train(
     action_size: int,
     log_interval: int = 10,
     evaluate_interval: int = 10,
+    num_eval_episodes: int = 10,
     action_noise: Optional[float] = None,
     free_nats: float = 3.0,
+    checkpoint_dir: str = "checkpoints",
 ) -> None:
     """
     Perform training.
 
     :param env: The environment.
     :param train_steps: Number of training steps.
-    :param T: Maximum number of steps per episode.
     :param S: Random seeds episodes.
     :param C: Collect interval
     :param B: Batch size.
@@ -376,10 +438,18 @@ def train(
     running_reward_loss = None
     running_kl_div = None
 
+    # best score
+    best_score = -np.inf
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+
+    # create training environment
+    env = make_env(env_config)
+
     # initialize buffer with S random seeds episodes
     buffer = SequenceBuffer()
     buffer = init_buffer(
-        buffer=buffer, env=env, num_sequences=S, max_sequence_len=T
+        buffer=buffer, env=env, num_sequences=S,
     )
 
     for i in range(train_steps):
@@ -426,7 +496,6 @@ def train(
         episode_reward = data_collection(
             env=env,
             buffer=buffer,
-            T=T,
             H=H,
             I=I,
             J=J,
@@ -451,9 +520,8 @@ def train(
             )
 
         if i % evaluate_interval == 0:
-            _, episode_reward = evaluate(
-                env=env,
-                T=T,
+            mean_reward = evaluate(
+                env_config=env_config,
                 H=H,
                 I=I,
                 J=J,
@@ -461,5 +529,15 @@ def train(
                 models=models,
                 hidden_state_size=hidden_state_size,
                 action_size=action_size,
+                action_noise=None,
+                num_eval_episodes=num_eval_episodes,
+                seed=0,
             )
-            print(f"Evaluation: Iter: {i}, Reward: {episode_reward}")
+            print(f"Evaluation: Iter: {i}, Mean reward: {mean_reward}")
+            
+            if mean_reward > best_score:
+                best_score = mean_reward
+                path = os.path.join(checkpoint_dir, "best_model.pth")
+                save_models(models, optimizers, path)
+
+

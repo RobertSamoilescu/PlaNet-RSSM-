@@ -10,7 +10,6 @@ from planet.dataset.buffer import SequenceBuffer
 def sample_random_sequences(
     env: gym.Env,
     num_sequences: int = 50,
-    max_sequence_len: int = 1000,
 ) -> List[List[EnvStep]]:
     """
     Sample random sequences from the environment.
@@ -55,13 +54,11 @@ def sample_random_sequences(
 
 
 def init_buffer(
-    buffer, env, num_sequences=50, max_sequence_len=1000
+    buffer, env, num_sequences=50,
 ) -> SequenceBuffer:
 
     # sample random sequences from the environment
-    sequences = sample_random_sequences(
-        env=env, num_sequences=num_sequences, max_sequence_len=max_sequence_len
-    )
+    sequences = sample_random_sequences(env=env, num_sequences=num_sequences)
 
     # add the sequences to the buffer
     for sequence in sequences:
