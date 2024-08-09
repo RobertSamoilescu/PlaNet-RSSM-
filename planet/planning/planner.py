@@ -60,14 +60,12 @@ def latent_planning(
 
             # sample the next state
             # (J, state_size)
-            mean_state, std_state = stochastic_state_model(
-                hidden_state=hidden_state_i
-            )
-            state = torch.distributions.Normal(mean_state, std_state).sample()
+            prior_dist = stochastic_state_model(hidden_state=hidden_state_i)
+            prior = prior_dist.sample()
 
             # compute the reward
             reward_sum += reward_model(
-                hidden_state=hidden_state_i, state=state
+                hidden_state=hidden_state_i, state=prior
             ).reshape(J)
 
         # select the top-K candidates

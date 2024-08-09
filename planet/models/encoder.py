@@ -23,7 +23,7 @@ class EncoderModel(nn.Module):
         x = F.relu(self.fc(x))
         mean = self.mean_head(x)
         std = F.softplus(self.std_head(x)) + 0.1
-        return mean, std
+        return torch.distributions.Normal(mean, std)
 
 
 class ImageEncoderModel(nn.Module):
@@ -63,4 +63,4 @@ class ImageEncoderModel(nn.Module):
         x = F.relu(self.fc(x))
         mean = self.mean_head(x)
         std = F.softplus(self.std_head(x)) + 0.1
-        return mean, std
+        return torch.distributions.Normal(mean, std)

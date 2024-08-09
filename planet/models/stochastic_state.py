@@ -21,4 +21,4 @@ class StochasticStateModel(nn.Module):
         x = F.relu(self.fc(hidden_state))
         mean = self.mean_head(x)
         std = F.softplus(self.std_head(x)) + 0.1
-        return mean, std
+        return torch.distributions.Normal(mean, std)

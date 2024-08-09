@@ -94,450 +94,306 @@ def load_models(models: Dict[str, nn.Module], optimizers: Dict[str, torch.optim.
         optimizer.load_state_dict(checkpoint[key])
         
 
-def model_train_step(
-    buffer: SequenceBuffer,
-    B: int,
-    L: int,
-    models: Dict[str, nn.Module],
-    optimizers: Dict[str, torch.optim.Optimizer],
-    hidden_state_size: int,
-    state_size: int,
-    action_size: int,
-    free_nats: float = 3.0,
-) -> torch.Tensor:
-    """
-    Perform a single training step.
-
-    :param buffer: Buffer containing sequences of environment steps.
-    :param B: Batch size.
-    :param L: Sequence length.
-    :param models: Dictionary containing the models.
-    :param optimizers: Dictionary containing the optimizers.
-    :param hidden_state_size: Size of the hidden state.
-    :param state_size: Size of the state.
-    """
-    _set_models_train(models)
-
-    # define loss variables
-    obs_loss = 0
-    reward_loss = 0
-    kl_div = 0
-
-    # sample a batch of experiences
-    batch = buffer.sample_batch(B, L)
-    batch.observations = batch.observations.float().cuda()
-    batch.actions = batch.actions.float().cuda()
-    batch.rewards = batch.rewards.float().cuda()
-    batch.dones = batch.dones.float().cuda()
-
-    # initialize first hidden state
-    # TODO: is this correct?
-    hidden_state = torch.zeros(B, hidden_state_size).cuda()
-
-    # get the first approximation of the state
-    # TODO: is this correct?
-    enc_mean_state, enc_std_state = models["enc_model"](
-        hidden_state=hidden_state.reshape(B, hidden_state_size),
-        observation=batch.observations[:, 0],
-    )
-    enc_state_dist = Normal(enc_mean_state, enc_std_state)
-    enc_state = enc_state_dist.rsample()
-
-    for t in range(1, L):
-
-        # compute deterministic hidden state
-        next_hidden_state = models["det_state_model"](
-            hidden_state=hidden_state,
-            state=enc_state,
-            action=batch.actions[:, t - 1],
-        )
-
-        # compute the prior distribution of the next state
-        mean_next_state, std_next_state = models["stoch_state_model"](
-            next_hidden_state
-        )
-        next_state_dist = Normal(mean_next_state, std_next_state)
-
-        # compute next approximation of the state
-        enc_next_mean_state, enc_std_next_state = models["enc_model"](
-            hidden_state=next_hidden_state,
-            observation=batch.observations[:, t],
-        )
-
-        enc_next_state_dist = Normal(enc_next_mean_state, enc_std_next_state)
-
-        # compute the kl divergence between the posterior
-        # and the prior of the state
-        mask = 1 - batch.dones[:, t - 1]
-        kl_div += _compute_kl_divergence(
-            enc_state_dist=enc_next_state_dist,
-            state_dist=next_state_dist,
-            mask=mask,
-            free_nats=free_nats,
-        )
-
-        # sample next state
-        enc_next_state = enc_next_state_dist.rsample()
-
-        # compute next observation based on the
-        # hidden state and the next state
-        obs = models["obs_model"](
-            hidden_state=next_hidden_state,
-            state=enc_next_state,
-        )
-
-        # compute next reward based on the hidden state
-        # and the next state
-        reward = models["reward_obs_model"](
-            hidden_state=next_hidden_state,
-            state=enc_next_state,
-        ).reshape(B)
-
-        # comput observation loss
-        gt_obs = batch.observations[:, t]
-        obs_loss += _compute_observation_loss(gt_obs, obs, mask)
-
-        # compute reward loss
-        gt_reward = batch.rewards[:, t - 1]
-        reward_loss += _compute_reward_loss(gt_reward, reward, mask)
-
-        # update hidden state
-        hidden_state = next_hidden_state
-        enc_state = enc_next_state
-
-    # zero gradients
-    _zero_grad(optimizers)
-
-    # compute average loss
-    mask_sum = (1 - batch.dones[:, :-1]).sum()
-    obs_loss /= mask_sum
-    reward_loss /= mask_sum
-    kl_div /= mask_sum
-
-    # compute loss
-    loss = obs_loss + reward_loss + kl_div
-    loss.backward()
-
-    # clip gradients
-    _clip_grad_norm(models, 1000)
-
-    # gradient step
-    _gradient_step(optimizers)
-    return loss.item(), obs_loss.item(), reward_loss.item(), kl_div.item()
-
-
-@torch.no_grad()
-def collect_episode(
-    env: gym.Env,
-    H: int,
-    I: int,
-    J: int,
-    K: int,
-    models: Dict[str, nn.Module],
-    hidden_state_size: int,
-    action_size: int,
-    action_noise: Optional[float] = None,
-) -> Tuple[List[EnvStep], float]:
-    _set_models_eval(models)
-
-    sequence = []
-    episode_reward = 0
-
-    # reset environment
-    obs, _ = env.reset()
-
-    # initialize hidden state and state belief
-    hidden_state = torch.zeros(1, hidden_state_size).cuda()
-
-    while True:
-        observation = torch.from_numpy(obs).float().unsqueeze(0).cuda()
-        enc_mean_state, enc_std_state = models["enc_model"](
-            hidden_state=hidden_state,
-            observation=observation,
-        )
-        enc_state = torch.distributions.Normal(
-            enc_mean_state, enc_std_state
-        ).sample()
-
-        action = latent_planning(
-            H=H,
-            I=I,
-            J=J,
-            K=K,
-            hidden_state=hidden_state,
-            current_state_belief=enc_state,
-            deterministic_state_model=models["det_state_model"],
-            stochastic_state_model=models["stoch_state_model"],
-            reward_model=models["reward_obs_model"],
-            action_size=action_size,
-        )
-
-        # add exploration noise
-        if action_noise is not None:
-            action += torch.randn_like(action) * math.sqrt(action_noise)
-
-        # take action in the environment
-        action_cpu = action.cpu()
-        next_obs, reward, terminated, truncated, _ = env.step(
-            action_cpu.numpy()
-        )
-
-        # update episode reward and add
-        # step to the sequence
-        episode_reward += reward
-        done = 1 if terminated or truncated else 0
-        sequence.append(
-            EnvStep(
-                observation=torch.from_numpy(obs).float(),
-                action=action_cpu.float(),
-                reward=float(reward),
-                done=float(done),
-            )
-        )
-
-        if done == 1:
-            break
-
-        # update observation
-        obs = next_obs
-
-        # update hidden state
-        hidden_state = models["det_state_model"](
-            hidden_state=hidden_state,
-            state=enc_state,
-            action=action.unsqueeze(0),
-        )
-
-    return sequence, episode_reward
-
-
-def evaluate(
-    env_config: Dict[str, Any],
-    H: int,
-    I: int,
-    J: int,
-    K: int,
-    models: Dict[str, nn.Module],
-    hidden_state_size: int,
-    action_size: int,
-    action_noise: Optional[float] = None,
-    num_eval_episodes: int = 10,
-    seed: int = 0
-) -> float:
-    _env_config = env_config.copy() 
-    if env_config["env_type"] == "gym":
-        env_config["seed"] = seed  
-    elif env_config["env_type"] == "dm_control":
-        env_config["task_kwargs"] = env_config.get("task_kwargs", {})
-        env_config["task_kwargs"]["random"] = seed
+class PlanetTrainer:
+    def __init__(
+        self, 
+        config: Dict[str, Any], 
+        models: Dict[str, nn.Module], 
+        optimizers: Dict[str, torch.optim.Optimizer]
+    ) -> None:
         
-    env = make_env(env_config)
-    episode_rewards = []
-    
-    for _ in tqdm(range(num_eval_episodes), desc="Evaluation"):
-        _, episode_reward = collect_episode(
-            env=env,
-            H=H,
-            I=I,
-            J=J,
-            K=K,
-            models=models,
-            hidden_state_size=hidden_state_size,
-            action_size=action_size,
-            action_noise=None,
+        self.config = config
+        self.models = models
+        self.optimizers = optimizers
+        
+    def model_fit_step(self) -> Dict[str, float]:
+        # define loss variables
+        obs_loss = reward_loss = kl_div = 0
+
+        # sample a batch of experiences
+        batch = self.buffer.sample_batch(
+            B=self.config["train_config"]["B"],
+            L=self.config["train_config"]["L"],
+        ).cuda()
+
+        # initialize first hidden state
+        hidden_state = torch.zeros(
+            self.config["train_config"]["B"], 
+            self.config["state_config"]["hidden_state_size"]
+        ).cuda()
+
+        # initialize posterior distribution
+        posterior_dist= self.models["enc_model"](
+            observation=batch.observations[:, 0],
+            hidden_state=hidden_state.reshape(
+                self.config["train_config"]["B"], 
+                self.config["state_config"]["hidden_state_size"]
+            )
         )
-        episode_rewards.append(episode_reward)
+        
+        # sample initial state
+        posterior = posterior_dist.rsample()
+        
+        for t in range(1, self.config["train_config"]["L"]):
+            # compute deterministic hidden state
+            next_hidden_state = self.models["det_state_model"](
+                hidden_state=hidden_state,
+                state=posterior,
+                action=batch.actions[:, t - 1],
+            )
+
+            # compute the prior distribution of the next state
+            next_prior_dist = self.models["stoch_state_model"](next_hidden_state)
+
+            # compute next approximation of the state
+            next_posterior_dist = self.models["enc_model"](
+                hidden_state=next_hidden_state,
+                observation=batch.observations[:, t],
+            )
+
+            # compute the kl divergence between the posterior
+            mask = 1 - batch.dones[:, t - 1]
+            kl_div += _compute_kl_divergence(
+                enc_state_dist=next_posterior_dist,
+                state_dist=next_prior_dist,
+                mask=mask,
+                free_nats=self.config["train_config"]["free_nats"],
+            )
+
+            # sample next state
+            next_posterior = next_posterior_dist.rsample()
+
+            # compute next observation based on the
+            # hidden state and the next state
+            obs = self.models["obs_model"](
+                hidden_state=next_hidden_state,
+                state=next_posterior,
+            )
+
+            # compute next reward based on the hidden state
+            # and the next state
+            reward = self.models["reward_obs_model"](
+                hidden_state=next_hidden_state,
+                state=next_posterior,
+            ).reshape(-1)
+
+            # comput observation loss
+            gt_obs = batch.observations[:, t]
+            obs_loss += _compute_observation_loss(gt_obs, obs, mask)
+
+            # compute reward loss
+            gt_reward = batch.rewards[:, t - 1]
+            reward_loss += _compute_reward_loss(gt_reward, reward, mask)
+
+            # update hidden state
+            hidden_state = next_hidden_state
+            posterior = next_posterior
+
+        # zero gradients
+        _zero_grad(self.optimizers)
+
+        # compute average loss
+        mask_sum = (1 - batch.dones[:, :-1]).sum()
+        obs_loss /= mask_sum
+        reward_loss /= mask_sum
+        kl_div /= mask_sum
+
+        # compute loss
+        loss = obs_loss + reward_loss + kl_div
+        loss.backward()
+
+        # clip gradients
+        _clip_grad_norm(self.models, 1000)
+
+        # gradient step
+        _gradient_step(self.optimizers)
+        return {
+            "loss": loss.item(), 
+            "obs_loss": obs_loss.item(), 
+            "reward_loss": reward_loss.item(), 
+            "kl_div": kl_div.item()
+        }
+        
+    def update_model_running_loss(
+        self, 
+        loss: Dict[str, float], 
+        running_stats: Dict[str, float]
+    ) -> None:
+        for key, value in loss.items():
+            running_stats[key] = (
+                value if running_stats.get(key) is None else 0.99 * running_stats[key] + 0.01 * value
+            )
+        return running_stats
     
-    return np.mean(episode_rewards)
+    
+    def update_data_collection_running_reward(
+        self, 
+        episode_reward: float, 
+        running_stats: Dict[str, float]
+    ) -> float:
+        running_stats["reward"] = (
+            episode_reward if running_stats.get("reward") is None else 0.9 * running_stats["reward"] + 0.1 * episode_reward
+        )
+        return running_stats["reward"]
+        
+    @torch.no_grad()
+    def collect_episode(
+        self, 
+        env: Any,
+        action_noise: Optional[float] = None
+    ) -> Tuple[List[EnvStep], float]:
+        _set_models_eval(self.models)
 
+        # reset environment
+        sequence, episode_reward = [], 0
+        obs, _ = env.reset()
 
-def data_collection(
-    env: gym.Env,
-    buffer: SequenceBuffer,
-    H: int,
-    I: int,
-    J: int,
-    K: int,
-    models: Dict[str, nn.Module],
-    hidden_state_size: int,
-    action_size: int,
-    action_noise: float = 0.1,
-):
-    """
-    Data collection step.
+        # initialize hidden state and state belief
+        hidden_state = torch.zeros(
+            1, self.config["state_config"]["hidden_state_size"]
+        ).cuda()
 
-    :param env: The environment.
-    :param buffer: Buffer containing sequences of environment steps.
-    :param H: Planning horizon distance.
-    :param I: Optimization iterations.
-    :param J: Candidates per iteration.
-    :param K: Top-K candidates to keep.
-    :param models: Dictionary containing the models.
-    :param hidden_state_size: Size of the hidden state.
-    :param action_size: Size of the action space.
-    :return: The episode reward.
-    """
-    sequence, episode_reward = collect_episode(
-        env=env,
-        H=H,
-        I=I,
-        J=J,
-        K=K,
-        models=models,
-        hidden_state_size=hidden_state_size,
-        action_size=action_size,
-        action_noise=action_noise,
-    )
-    buffer.add_sequence(sequence)
-    return episode_reward
-
-
-def train(
-    env_config: Dict[str, Any],
-    train_steps: int,
-    S: int,
-    C: int,
-    B: int,
-    L: int,
-    H: int,
-    I: int,
-    J: int,
-    K: int,
-    models: Dict[str, nn.Module],
-    optimizers: Dict[str, torch.optim.Optimizer],
-    hidden_state_size: int,
-    state_size: int,
-    action_size: int,
-    log_interval: int = 10,
-    evaluate_interval: int = 10,
-    num_eval_episodes: int = 10,
-    action_noise: Optional[float] = None,
-    free_nats: float = 3.0,
-    checkpoint_dir: str = "checkpoints",
-) -> None:
-    """
-    Perform training.
-
-    :param env: The environment.
-    :param train_steps: Number of training steps.
-    :param S: Random seeds episodes.
-    :param C: Collect interval
-    :param B: Batch size.
-    :param L: Sequence length.
-    :param models: Dictionary containing the models.
-    :param optimizers: Dictionary containing the optimizers.
-    :param hidden_state_size: Size of the hidden state.
-    :param state_size: Size of the state.
-    :param action_size: Size of the action space.
-    """
-    # running statitsics
-    running_loss = None
-    running_reward = None
-
-    running_obs_loss = None
-    running_reward_loss = None
-    running_kl_div = None
-
-    # best score
-    best_score = -np.inf
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-
-    # create training environment
-    env = make_env(env_config)
-
-    # initialize buffer with S random seeds episodes
-    buffer = SequenceBuffer()
-    buffer = init_buffer(
-        buffer=buffer, env=env, num_sequences=S,
-    )
-
-    for i in range(train_steps):
-
-        # model fitting
-        for s in tqdm(range(C), desc="Model fitting"):
-            loss, obs_loss, reward_loss, kl_div = model_train_step(
-                buffer=buffer,
-                B=B,
-                L=L,
-                models=models,
-                optimizers=optimizers,
-                hidden_state_size=hidden_state_size,
-                state_size=state_size,
-                action_size=action_size,
-                free_nats=free_nats,
+        while True:
+            observation = torch.from_numpy(obs).float().unsqueeze(0).cuda()
+            posterior_dist = self.models["enc_model"](
+                hidden_state=hidden_state,
+                observation=observation,
+            )
+            posterior = posterior_dist.sample()
+            action = latent_planning(
+                H=self.config["train_config"]["H"],
+                I=self.config["train_config"]["I"],
+                J=self.config["train_config"]["J"],
+                K=self.config["train_config"]["K"],
+                hidden_state=hidden_state,
+                current_state_belief=posterior,
+                deterministic_state_model=self.models["det_state_model"],
+                stochastic_state_model=self.models["stoch_state_model"],
+                reward_model=self.models["reward_obs_model"],
+                action_size=self.config["state_config"]["action_size"],
             )
 
-            running_loss = (
-                loss
-                if running_loss is None
-                else 0.99 * running_loss + 0.01 * loss
+            # add exploration noise
+            if action_noise is not None:
+                action += torch.randn_like(action) * math.sqrt(action_noise)
+
+            # take action in the environment
+            action_cpu = action.cpu()
+            next_obs, reward, terminated, truncated, _ = env.step(
+                action_cpu.numpy()
             )
 
-            running_obs_loss = (
-                obs_loss
-                if running_obs_loss is None
-                else 0.99 * running_obs_loss + 0.01 * obs_loss
+            # update episode reward and add
+            # step to the sequence
+            episode_reward += reward
+            done = 1 if terminated or truncated else 0
+            sequence.append(
+                EnvStep(
+                    observation=torch.from_numpy(obs).float(),
+                    action=action_cpu.float(),
+                    reward=float(reward),
+                    done=float(done),
+                )
             )
 
-            running_reward_loss = (
-                reward_loss
-                if running_reward_loss is None
-                else 0.99 * running_reward_loss + 0.01 * reward_loss
+            if done == 1:
+                break
+
+            # update observation
+            obs = next_obs
+
+            # update hidden state
+            hidden_state = self.models["det_state_model"](
+                hidden_state=hidden_state,
+                state=posterior,
+                action=action.unsqueeze(0),
             )
 
-            running_kl_div = (
-                kl_div
-                if running_kl_div is None
-                else 0.99 * running_kl_div + 0.01 * kl_div
-            )
-
+        return sequence, episode_reward
+        
+        
+    def data_collection(self) -> float:
+        """ Data collection step."""
+        sequence, episode_reward = self.collect_episode(
+            env=self.env,
+            action_noise=self.config["train_config"]["action_noise"],
+        )
+        self.buffer.add_sequence(sequence)
+        return episode_reward
+        
+        
+    def train_step(self, i: int, running_stats: Dict[str, float] = {}):
+        # fit the world model
+        for _ in range(self.config["train_config"]["C"]):
+            model_loss = self.model_fit_step()
+            running_loss = self.update_model_running_loss(model_loss, running_stats)
+        
         # data collection
-        episode_reward = data_collection(
-            env=env,
-            buffer=buffer,
-            H=H,
-            I=I,
-            J=J,
-            K=K,
-            models=models,
-            hidden_state_size=hidden_state_size,
-            action_size=action_size,
-            action_noise=action_noise,
-        )
-
-        # update running reward
-        running_reward = (
-            episode_reward
-            if running_reward is None
-            else 0.9 * running_reward + 0.1 * episode_reward
-        )
-
-        if i % log_interval == 0:
-            print(f"Iter: {i}, Loss: {running_loss}, Reward: {running_reward}")
+        reward = self.data_collection()
+        running_reward = self.update_data_collection_running_reward(reward, running_stats)
+        
+        if i % self.config["train_config"]["log_interval"] == 0:
             print(
-                f"Obs Loss: {running_obs_loss}, Reward Loss: {running_reward_loss}, KL Div: {running_kl_div}"
+                f"Iter: {i}, "
+                f"Loss: {running_stats['loss']}, Obs Loss: {running_stats['obs_loss']}, "
+                f"Reward Loss: {running_stats['reward_loss']}, KL Div: {running_stats['kl_div']}, ",
+                f"Collection reward: {running_stats['reward']}"
             )
-
-        if i % evaluate_interval == 0:
-            mean_reward = evaluate(
-                env_config=env_config,
-                H=H,
-                I=I,
-                J=J,
-                K=K,
-                models=models,
-                hidden_state_size=hidden_state_size,
-                action_size=action_size,
-                action_noise=None,
-                num_eval_episodes=num_eval_episodes,
-                seed=0,
-            )
-            print(f"Evaluation: Iter: {i}, Mean reward: {mean_reward}")
             
-            if mean_reward > best_score:
-                best_score = mean_reward
-                path = os.path.join(checkpoint_dir, "best_model.pth")
-                save_models(models, optimizers, path)
+            
+            
+    def evaluate(self, seed: int = 0) -> float:
+        # set models to evaluation mode
+        _set_models_eval(self.models)
+        
+        # create evaluation environment with deterministic seed
+        _env_config = self.config["env_config"].copy()
+        if _env_config["env_type"] == "gym":
+            _env_config["seed"] = seed 
+        else:
+            _env_config["task_kwargs"] = _env_config.get("task_kwargs", {})
+            _env_config["task_kwargs"]["random"] = seed
+            
+        
+        episode_rewards = []
+        env = make_env(_env_config)        
+        num_eval_episodes = self.config["eval_config"]["num_eval_episodes"]
+        
+        for _ in tqdm(range(num_eval_episodes), desc="Evaluation"):
+            episode_rewards.append(
+                self.collect_episode(
+                    env=env,
+                    action_noise=None,
+                )[1]
+            )
+        
+        return np.mean(episode_rewards)
+        
+        
+        
+    def fit(self):
+        best_score = -np.inf
+        train_steps = self.config["train_config"]["train_steps"]
+        checkpoint_path = os.path.join(self.config["train_config"]["checkpoint_dir"], "best_model.pth")
+        
+        # create environment and buffer
+        self.env = make_env(self.config["env_config"])
+        self.buffer = SequenceBuffer()
+        
+        # initialize buffer with S random seeds episodes
+        self.buffer = init_buffer(
+            buffer=self.buffer, 
+            env=self.env, 
+            num_sequences=self.config["train_config"]["S"],
+        )
 
-
+        for i in range(train_steps):
+            self.train_step(i)
+            
+            if i % self.config["eval_config"]["eval_interval"] == 0:
+                mean_reward = self.evaluate()
+                print(f"Evaluation: Iter: {i}, Mean reward: {mean_reward}")
+                
+                if mean_reward > best_score:
+                    best_score = mean_reward
+                    save_models(self.models, self.optimizers, checkpoint_path)
