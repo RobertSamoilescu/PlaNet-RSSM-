@@ -14,7 +14,7 @@ def latent_planning(
     J: int,
     K: int,
     hidden_state: torch.Tensor,
-    current_state_belief: torch.Tensor,
+    current_state_belief: torch.distributions.Normal,
     deterministic_state_model: nn.Module,
     stochastic_state_model: nn.Module,
     reward_model: nn.Module,
@@ -47,7 +47,7 @@ def latent_planning(
         candidate_actions = candidate_actions.cuda()
 
         # initialize the state
-        state = current_state_belief.repeat(J, 1)
+        state = current_state_belief.sample((J,)).reshape(J, -1)
         hidden_state_i = hidden_state
 
         for t in range(H):
@@ -61,11 +61,11 @@ def latent_planning(
             # sample the next state
             # (J, state_size)
             prior_dist = stochastic_state_model(hidden_state=hidden_state_i)
-            prior = prior_dist.sample()
+            state = prior_dist.sample()
 
             # compute the reward
             reward_sum += reward_model(
-                hidden_state=hidden_state_i, state=prior
+                hidden_state=hidden_state_i, state=state
             ).reshape(J)
 
         # select the top-K candidates

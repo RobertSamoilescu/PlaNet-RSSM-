@@ -54,7 +54,9 @@ def sample_random_sequences(
 
 
 def init_buffer(
-    buffer, env, num_sequences=50,
+    buffer,
+    env,
+    num_sequences=50,
 ) -> SequenceBuffer:
 
     # sample random sequences from the environment

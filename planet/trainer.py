@@ -16,7 +16,6 @@ from planet.utils.envs import make_env
 from planet.planning.planner import latent_planning
 
 
-
 def _zero_grad(optimizers: Dict[str, torch.optim.Optimizer]):
     for optimizer in optimizers.values():
         optimizer.zero_grad()
@@ -50,14 +49,12 @@ def _compute_reward_loss(
 
 
 def _compute_kl_divergence(
-    enc_state_dist: Normal,
-    state_dist: Normal,
+    posterior: Normal,
+    prior_dist: Normal,
     mask: torch.Tensor,
     free_nats: float,
 ) -> torch.Tensor:
-    kl = torch.distributions.kl_divergence(enc_state_dist, state_dist).sum(
-        dim=-1
-    )
+    kl = torch.distributions.kl_divergence(posterior, prior_dist).sum(dim=-1)
     kl = kl.clamp(min=free_nats)
     return (kl * mask).sum()
 
@@ -70,42 +67,50 @@ def _set_models_eval(models: Dict[str, nn.Module]):
 def _set_models_train(models: Dict[str, nn.Module]):
     for model in models.values():
         model.train()
-        
-        
-def save_models(models: Dict[str, nn.Module], optimizers: Dict[str, torch.optim.Optimizer], path: str):
+
+
+def save_models(
+    models: Dict[str, nn.Module],
+    optimizers: Dict[str, torch.optim.Optimizer],
+    path: str,
+):
     checkpoint = {}
-    
+
     for key, model in models.items():
         checkpoint[key] = model.state_dict()
-        
+
     for key, optimizer in optimizers.items():
         checkpoint[key] = optimizer.state_dict()
-        
-    torch.save(checkpoint, path)
-    
 
-def load_models(models: Dict[str, nn.Module], optimizers: Dict[str, torch.optim.Optimizer], path: str):
+    torch.save(checkpoint, path)
+
+
+def load_models(
+    models: Dict[str, nn.Module],
+    optimizers: Dict[str, torch.optim.Optimizer],
+    path: str,
+):
     checkpoint = torch.load(path)
-    
+
     for key, model in models.items():
         model.load_state_dict(checkpoint[key])
-        
+
     for key, optimizer in optimizers.items():
         optimizer.load_state_dict(checkpoint[key])
-        
+
 
 class PlanetTrainer:
     def __init__(
-        self, 
-        config: Dict[str, Any], 
-        models: Dict[str, nn.Module], 
-        optimizers: Dict[str, torch.optim.Optimizer]
+        self,
+        config: Dict[str, Any],
+        models: Dict[str, nn.Module],
+        optimizers: Dict[str, torch.optim.Optimizer],
     ) -> None:
-        
+
         self.config = config
         self.models = models
         self.optimizers = optimizers
-        
+
     def model_fit_step(self) -> Dict[str, float]:
         # define loss variables
         obs_loss = reward_loss = kl_div = 0
@@ -118,22 +123,18 @@ class PlanetTrainer:
 
         # initialize first hidden state
         hidden_state = torch.zeros(
-            self.config["train_config"]["B"], 
-            self.config["state_config"]["hidden_state_size"]
+            self.config["train_config"]["B"],
+            self.config["state_config"]["hidden_state_size"],
         ).cuda()
 
         # initialize posterior distribution
-        posterior_dist= self.models["enc_model"](
-            observation=batch.observations[:, 0],
-            hidden_state=hidden_state.reshape(
-                self.config["train_config"]["B"], 
-                self.config["state_config"]["hidden_state_size"]
-            )
+        posterior_dist = self.models["enc_model"](
+            observation=batch.observations[:, 0], hidden_state=hidden_state
         )
-        
+
         # sample initial state
         posterior = posterior_dist.rsample()
-        
+
         for t in range(1, self.config["train_config"]["L"]):
             # compute deterministic hidden state
             next_hidden_state = self.models["det_state_model"](
@@ -143,7 +144,9 @@ class PlanetTrainer:
             )
 
             # compute the prior distribution of the next state
-            next_prior_dist = self.models["stoch_state_model"](next_hidden_state)
+            next_prior_dist = self.models["stoch_state_model"](
+                next_hidden_state
+            )
 
             # compute next approximation of the state
             next_posterior_dist = self.models["enc_model"](
@@ -154,8 +157,8 @@ class PlanetTrainer:
             # compute the kl divergence between the posterior
             mask = 1 - batch.dones[:, t - 1]
             kl_div += _compute_kl_divergence(
-                enc_state_dist=next_posterior_dist,
-                state_dist=next_prior_dist,
+                posterior=next_posterior_dist,
+                prior_dist=next_prior_dist,
                 mask=mask,
                 free_nats=self.config["train_config"]["free_nats"],
             )
@@ -208,39 +211,36 @@ class PlanetTrainer:
         # gradient step
         _gradient_step(self.optimizers)
         return {
-            "loss": loss.item(), 
-            "obs_loss": obs_loss.item(), 
-            "reward_loss": reward_loss.item(), 
-            "kl_div": kl_div.item()
+            "loss": loss.item(),
+            "obs_loss": obs_loss.item(),
+            "reward_loss": reward_loss.item(),
+            "kl_div": kl_div.item(),
         }
-        
+
     def update_model_running_loss(
-        self, 
-        loss: Dict[str, float], 
-        running_stats: Dict[str, float]
+        self, loss: Dict[str, float], running_stats: Dict[str, float]
     ) -> None:
         for key, value in loss.items():
             running_stats[key] = (
-                value if running_stats.get(key) is None else 0.99 * running_stats[key] + 0.01 * value
+                value
+                if running_stats.get(key) is None
+                else 0.99 * running_stats[key] + 0.01 * value
             )
         return running_stats
-    
-    
+
     def update_data_collection_running_reward(
-        self, 
-        episode_reward: float, 
-        running_stats: Dict[str, float]
+        self, episode_reward: float, running_stats: Dict[str, float]
     ) -> float:
         running_stats["reward"] = (
-            episode_reward if running_stats.get("reward") is None else 0.9 * running_stats["reward"] + 0.1 * episode_reward
+            episode_reward
+            if running_stats.get("reward") is None
+            else 0.9 * running_stats["reward"] + 0.1 * episode_reward
         )
         return running_stats["reward"]
-        
+
     @torch.no_grad()
     def collect_episode(
-        self, 
-        env: Any,
-        action_noise: Optional[float] = None
+        self, env: Any, action_noise: Optional[float] = None
     ) -> Tuple[List[EnvStep], float]:
         _set_models_eval(self.models)
 
@@ -259,14 +259,13 @@ class PlanetTrainer:
                 hidden_state=hidden_state,
                 observation=observation,
             )
-            posterior = posterior_dist.sample()
             action = latent_planning(
                 H=self.config["train_config"]["H"],
                 I=self.config["train_config"]["I"],
                 J=self.config["train_config"]["J"],
                 K=self.config["train_config"]["K"],
                 hidden_state=hidden_state,
-                current_state_belief=posterior,
+                current_state_belief=posterior_dist,
                 deterministic_state_model=self.models["det_state_model"],
                 stochastic_state_model=self.models["stoch_state_model"],
                 reward_model=self.models["reward_obs_model"],
@@ -305,60 +304,59 @@ class PlanetTrainer:
             # update hidden state
             hidden_state = self.models["det_state_model"](
                 hidden_state=hidden_state,
-                state=posterior,
+                state=posterior_dist.sample(),
                 action=action.unsqueeze(0),
             )
 
         return sequence, episode_reward
-        
-        
+
     def data_collection(self) -> float:
-        """ Data collection step."""
+        """Data collection step."""
         sequence, episode_reward = self.collect_episode(
             env=self.env,
             action_noise=self.config["train_config"]["action_noise"],
         )
         self.buffer.add_sequence(sequence)
         return episode_reward
-        
-        
+
     def train_step(self, i: int, running_stats: Dict[str, float] = {}):
         # fit the world model
         for _ in range(self.config["train_config"]["C"]):
             model_loss = self.model_fit_step()
-            running_loss = self.update_model_running_loss(model_loss, running_stats)
-        
+            running_loss = self.update_model_running_loss(
+                model_loss, running_stats
+            )
+
         # data collection
         reward = self.data_collection()
-        running_reward = self.update_data_collection_running_reward(reward, running_stats)
-        
+        running_reward = self.update_data_collection_running_reward(
+            reward, running_stats
+        )
+
         if i % self.config["train_config"]["log_interval"] == 0:
             print(
                 f"Iter: {i}, "
                 f"Loss: {running_stats['loss']}, Obs Loss: {running_stats['obs_loss']}, "
                 f"Reward Loss: {running_stats['reward_loss']}, KL Div: {running_stats['kl_div']}, ",
-                f"Collection reward: {running_stats['reward']}"
+                f"Collection reward: {running_stats['reward']}",
             )
-            
-            
-            
+
     def evaluate(self, seed: int = 0) -> float:
         # set models to evaluation mode
         _set_models_eval(self.models)
-        
+
         # create evaluation environment with deterministic seed
         _env_config = self.config["env_config"].copy()
         if _env_config["env_type"] == "gym":
-            _env_config["seed"] = seed 
+            _env_config["seed"] = seed
         else:
             _env_config["task_kwargs"] = _env_config.get("task_kwargs", {})
             _env_config["task_kwargs"]["random"] = seed
-            
-        
+
         episode_rewards = []
-        env = make_env(_env_config)        
+        env = make_env(_env_config)
         num_eval_episodes = self.config["eval_config"]["num_eval_episodes"]
-        
+
         for _ in tqdm(range(num_eval_episodes), desc="Evaluation"):
             episode_rewards.append(
                 self.collect_episode(
@@ -366,34 +364,37 @@ class PlanetTrainer:
                     action_noise=None,
                 )[1]
             )
-        
+
         return np.mean(episode_rewards)
-        
-        
-        
+
     def fit(self):
         best_score = -np.inf
         train_steps = self.config["train_config"]["train_steps"]
-        checkpoint_path = os.path.join(self.config["train_config"]["checkpoint_dir"], "best_model.pth")
-        
+
+        checkpoint_path = os.path.join(
+            self.config["train_config"]["checkpoint_dir"], "best_model.pth"
+        )
+        if not os.path.exists(self.config["train_config"]["checkpoint_dir"]):
+            os.makedirs(self.config["train_config"]["checkpoint_dir"])
+
         # create environment and buffer
         self.env = make_env(self.config["env_config"])
         self.buffer = SequenceBuffer()
-        
+
         # initialize buffer with S random seeds episodes
         self.buffer = init_buffer(
-            buffer=self.buffer, 
-            env=self.env, 
+            buffer=self.buffer,
+            env=self.env,
             num_sequences=self.config["train_config"]["S"],
         )
 
         for i in range(train_steps):
             self.train_step(i)
-            
+
             if i % self.config["eval_config"]["eval_interval"] == 0:
                 mean_reward = self.evaluate()
                 print(f"Evaluation: Iter: {i}, Mean reward: {mean_reward}")
-                
+
                 if mean_reward > best_score:
                     best_score = mean_reward
                     save_models(self.models, self.optimizers, checkpoint_path)
