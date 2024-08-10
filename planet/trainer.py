@@ -236,7 +236,7 @@ class PlanetTrainer:
             if running_stats.get("reward") is None
             else 0.9 * running_stats["reward"] + 0.1 * episode_reward
         )
-        return running_stats["reward"]
+        return running_stats
 
     @torch.no_grad()
     def collect_episode(
@@ -253,7 +253,11 @@ class PlanetTrainer:
             1, self.config["state_config"]["hidden_state_size"]
         ).cuda()
 
-        while True:
+        max_episode_length = self.config["train_config"]["max_episode_length"]
+        action_repeat = self.config["train_config"]["action_repeat"]
+        T = max_episode_length // action_repeat
+
+        for _ in range(T):
             observation = torch.from_numpy(obs).float().unsqueeze(0).cuda()
             posterior_dist = self.models["enc_model"](
                 hidden_state=hidden_state,
@@ -274,7 +278,7 @@ class PlanetTrainer:
 
             # add exploration noise
             if action_noise is not None:
-                action += torch.randn_like(action) * math.sqrt(action_noise)
+                action += torch.randn_like(action) * action_noise
 
             # take action in the environment
             action_cpu = action.cpu()
@@ -320,16 +324,18 @@ class PlanetTrainer:
         return episode_reward
 
     def train_step(self, i: int, running_stats: Dict[str, float] = {}):
+        _set_models_train(self.models)
+        
         # fit the world model
         for _ in range(self.config["train_config"]["C"]):
             model_loss = self.model_fit_step()
-            running_loss = self.update_model_running_loss(
+            running_stats = self.update_model_running_loss(
                 model_loss, running_stats
             )
 
         # data collection
         reward = self.data_collection()
-        running_reward = self.update_data_collection_running_reward(
+        running_stats = self.update_data_collection_running_reward(
             reward, running_stats
         )
 
@@ -382,10 +388,14 @@ class PlanetTrainer:
         self.buffer = SequenceBuffer()
 
         # initialize buffer with S random seeds episodes
+        max_episode_length = self.config["train_config"]["max_episode_length"]
+        action_repeat = self.config["train_config"]["action_repeat"]
+        T = max_episode_length // action_repeat
         self.buffer = init_buffer(
             buffer=self.buffer,
             env=self.env,
             num_sequences=self.config["train_config"]["S"],
+            max_sequence_len=T,
         )
 
         for i in range(train_steps):
