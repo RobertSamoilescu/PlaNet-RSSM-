@@ -51,23 +51,22 @@ def latent_planning(
         hidden_state_i = hidden_state
 
         for t in range(H):
-            # compute the next hidden state
             hidden_state_i = deterministic_state_model(
                 hidden_state=hidden_state_i,
                 state=state,
                 action=candidate_actions[:, t],
             )
-
+            
             # sample the next state
             # (J, state_size)
             prior_dist = stochastic_state_model(hidden_state=hidden_state_i)
             state = prior_dist.sample()
 
-            # compute the reward
             reward_sum += reward_model(
-                hidden_state=hidden_state_i, state=state
+                hidden_state=hidden_state_i, 
+                state=state
             ).reshape(J)
-
+                
         # select the top-K candidates
         # (K, H, action_size)
         top_k_indices = torch.argsort(reward_sum, descending=True)[:K].tolist()

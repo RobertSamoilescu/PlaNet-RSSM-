@@ -29,7 +29,7 @@ class BaseEnv:
 class GymEnv(BaseEnv):
     def __init__(self, config: Dict[str, Any]) -> None:
         super().__init__(config)
-        self.env = gym.make(config["id"])
+        self.env = gym.make(config["id"], **config.get("kwargs", {}))
         self.env.reset(seed=config.get("seed"))
         self.env = RepeatActionWrapper(self.env, skip=config.get("skip", 4))
 

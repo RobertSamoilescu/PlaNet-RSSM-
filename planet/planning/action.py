@@ -7,7 +7,7 @@ class ActionPlanner:
         self.action_size = action_size
 
         self.mean = torch.zeros(H, action_size)
-        self.std = torch.ones(H, action_size)
+        self.std = 0.5 * torch.ones(H, action_size)
 
     def sample(self, n: int) -> torch.Tensor:
         dist = torch.distributions.Normal(self.mean, self.std)

@@ -129,7 +129,8 @@ class PlanetTrainer:
 
         # initialize posterior distribution
         posterior_dist = self.models["enc_model"](
-            observation=batch.observations[:, 0], hidden_state=hidden_state
+            observation=batch.observations[:, 0], 
+            hidden_state=hidden_state
         )
 
         # sample initial state
@@ -179,7 +180,7 @@ class PlanetTrainer:
                 hidden_state=next_hidden_state,
                 state=next_posterior,
             ).reshape(-1)
-
+            
             # comput observation loss
             gt_obs = batch.observations[:, t]
             obs_loss += _compute_observation_loss(gt_obs, obs, mask)
@@ -206,7 +207,10 @@ class PlanetTrainer:
         loss.backward()
 
         # clip gradients
-        _clip_grad_norm(self.models, 1000)
+        torch.nn.utils.clip_grad_norm_(
+            self.config["train_config"]["all_params"],
+            1000
+        )
 
         # gradient step
         _gradient_step(self.optimizers)
@@ -343,7 +347,7 @@ class PlanetTrainer:
             print(
                 f"Iter: {i}, "
                 f"Loss: {running_stats['loss']}, Obs Loss: {running_stats['obs_loss']}, "
-                f"Reward Loss: {running_stats['reward_loss']}, KL Div: {running_stats['kl_div']}, ",
+                f"Reward Loss: {running_stats['reward_loss']}, KL Div: {running_stats['kl_div']}, "
                 f"Collection reward: {running_stats['reward']}",
             )
 
