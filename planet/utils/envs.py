@@ -48,7 +48,7 @@ class DMControlEnv(BaseEnv):
             task_name=config["task_name"],
             task_kwargs=config.get("task_kwargs", {}),
             render_kwargs=config.get(
-                "render_kwargs", {"width": 64, "height": 64}
+                "render_kwargs", {"width": 64, "height": 64, "camera_id": 0}
             ),
         )
         self.env = RepeatActionWrapper(self.env, skip=config.get("skip", 4))

@@ -1,5 +1,6 @@
 import torch
 import random
+import numpy as np
 from collections import deque
 from typing import List, Optional
 from planet.dataset.env_objects import EnvStep, EnvSequence
@@ -10,6 +11,12 @@ class SequenceBuffer:
         self.buffer = deque(maxlen=max_len)
 
     def add_sequence(self, sequence: List[EnvStep]) -> None:
+        # rewards = np.array([step.reward for step in sequence])
+        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-6)
+    
+        # for i, step in enumerate(sequence):
+        #     step.reward = rewards[i]
+    
         self.buffer.append(sequence)
 
     def _pad_sequence(self, sequence: List[EnvStep], L: int) -> List[EnvStep]:

@@ -36,7 +36,7 @@ def _compute_observation_loss(
 ) -> torch.Tensor:
     mse_loss = torch.nn.functional.mse_loss(obs, gt_obs, reduction="none")
     mse_loss = mse_loss.reshape(mse_loss.shape[0], -1)
-    return 0.5 * (mse_loss.sum(axis=-1) * mask).sum()
+    return (mse_loss.sum(axis=-1) * mask).sum()
 
 
 def _compute_reward_loss(
@@ -45,7 +45,7 @@ def _compute_reward_loss(
     mse_loss = torch.nn.functional.mse_loss(
         reward, gt_reward, reduction="none"
     )
-    return 0.5 * (mse_loss * mask).sum()
+    return (mse_loss * mask).sum()
 
 
 def _compute_kl_divergence(
@@ -209,7 +209,7 @@ class PlanetTrainer:
         # clip gradients
         torch.nn.utils.clip_grad_norm_(
             self.config["train_config"]["all_params"],
-            1000
+            5.0
         )
 
         # gradient step

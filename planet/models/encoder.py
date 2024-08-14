@@ -14,13 +14,15 @@ class EncoderModel(nn.Module):
     ) -> None:
         super(EncoderModel, self).__init__()
         input_size = hidden_state_size + observation_size
-        self.fc = nn.Linear(input_size, hidden_layer_size)
+        self.fc1 = nn.Linear(input_size, hidden_layer_size)
+        self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
         self.mean_head = nn.Linear(hidden_layer_size, state_size)
         self.std_head = nn.Linear(hidden_layer_size, state_size)
 
     def forward(self, hidden_state: Tensor, observation: Tensor) -> Tensor:
         x = torch.cat([hidden_state, observation], dim=-1)
-        x = F.relu(self.fc(x))
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         mean = self.mean_head(x)
         std = F.softplus(self.std_head(x)) + 0.1
         return torch.distributions.Normal(mean, std)
