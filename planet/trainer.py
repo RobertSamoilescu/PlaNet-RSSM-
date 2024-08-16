@@ -134,13 +134,13 @@ class PlanetTrainer:
         )
 
         # sample initial state
-        posterior = posterior_dist.rsample()
+        state = posterior_dist.rsample()
 
         for t in range(1, self.config["train_config"]["L"]):
             # compute deterministic hidden state
             next_hidden_state = self.models["det_state_model"](
                 hidden_state=hidden_state,
-                state=posterior,
+                state=state,
                 action=batch.actions[:, t - 1],
             )
 
@@ -191,7 +191,7 @@ class PlanetTrainer:
 
             # update hidden state
             hidden_state = next_hidden_state
-            posterior = next_posterior
+            state = next_posterior_dist.rsample()
 
         # zero gradients
         _zero_grad(self.optimizers)
@@ -209,7 +209,7 @@ class PlanetTrainer:
         # clip gradients
         torch.nn.utils.clip_grad_norm_(
             self.config["train_config"]["all_params"],
-            5.0
+            100.
         )
 
         # gradient step
@@ -261,7 +261,7 @@ class PlanetTrainer:
         action_repeat = self.config["train_config"]["action_repeat"]
         T = max_episode_length // action_repeat
 
-        for _ in range(T):
+        for _ in tqdm(range(T)):
             observation = torch.from_numpy(obs).float().unsqueeze(0).cuda()
             posterior_dist = self.models["enc_model"](
                 hidden_state=hidden_state,
@@ -331,7 +331,7 @@ class PlanetTrainer:
         _set_models_train(self.models)
         
         # fit the world model
-        for _ in range(self.config["train_config"]["C"]):
+        for _ in tqdm(range(self.config["train_config"]["C"])):
             model_loss = self.model_fit_step()
             running_stats = self.update_model_running_loss(
                 model_loss, running_stats

@@ -16,13 +16,15 @@ class ObservationModel(nn.Module):
         input_size = hidden_state_size + state_size
 
         self.fc1 = nn.Linear(input_size, hidden_layer_size)
+        self.ln1 = nn.LayerNorm(hidden_layer_size)
         self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
+        self.ln2 = nn.LayerNorm(hidden_layer_size)
         self.fc3 = nn.Linear(hidden_layer_size, observation_size)
 
     def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
         x = torch.cat([hidden_state, state], dim=-1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = F.elu(self.ln1(self.fc1(x)))
+        x = F.elu(self.ln2(self.fc2(x)))
         return self.fc3(x)
 
 
@@ -45,7 +47,7 @@ class ImageObservationModel(nn.Module):
     def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
         x = self.fc(torch.cat([state, hidden_state], dim=1))
         x = x.view(x.size(0), 1024, 1, 1)
-        x = F.relu(self.dc1(x))
-        x = F.relu(self.dc2(x))
-        x = F.relu(self.dc3(x))
+        x = F.elu(self.dc1(x))
+        x = F.elu(self.dc2(x))
+        x = F.elu(self.dc3(x))
         return self.dc4(x)
