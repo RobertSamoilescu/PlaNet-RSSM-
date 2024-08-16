@@ -209,7 +209,7 @@ class PlanetTrainer:
         # clip gradients
         torch.nn.utils.clip_grad_norm_(
             self.config["train_config"]["all_params"],
-            5.0
+            100,
         )
 
         # gradient step
