@@ -15,19 +15,21 @@ from planet.utils.envs import make_env
 
 # %%
 # set seed for reproducibility
-set_seed(13)
+seeds = [13, 26, 39, 52]
+seed = seeds[0]
+set_seed(seed)
 
 # %%
 free_nats = 3.0
 action_noise = 0.3
 
-# action_repeat = 2
-# domain_name = "walker"
-# task_name = "walk"
+action_repeat = 2
+domain_name = "walker"
+task_name = "walk"
 
-action_repeat = 8
-domain_name = "cartpole"
-task_name = "balance"
+# action_repeat = 8
+# domain_name = "cartpole"
+# task_name = "balance"
 
 
 env_config = {
@@ -129,7 +131,7 @@ trainer = PlanetTrainer(
             "log_interval": 1,
             "action_noise": action_noise,
             "free_nats": free_nats,
-            "checkpoint_dir": "checkpoints-%s-%.2f" % (domain_name, free_nats),
+            "checkpoint_dir": "checkpoints-%s-%d" % (domain_name, seed),
             "max_episode_length": 1000,
             "action_repeat": action_repeat,
             "all_params": all_params
