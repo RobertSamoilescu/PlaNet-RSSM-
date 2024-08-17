@@ -261,7 +261,7 @@ class PlanetTrainer:
         action_repeat = self.config["train_config"]["action_repeat"]
         T = max_episode_length // action_repeat
 
-        for _ in range(T):
+        for _ in tqdm(range(T)):
             observation = torch.from_numpy(obs).float().unsqueeze(0).cuda()
             posterior_dist = self.models["enc_model"](
                 hidden_state=hidden_state,
@@ -332,7 +332,7 @@ class PlanetTrainer:
         _set_models_train(self.models)
         
         # fit the world model
-        for _ in range(self.config["train_config"]["C"]):
+        for _ in tqdm(range(self.config["train_config"]["C"])):
             model_loss = self.model_fit_step()
             running_stats = self.update_model_running_loss(
                 model_loss, running_stats
