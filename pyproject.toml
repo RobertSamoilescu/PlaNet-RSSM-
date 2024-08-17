@@ -16,6 +16,8 @@ opencv-python = "^4.10.0.84"
 gym = {extras = ["box2d"], version = "^0.26.2"}
 ipykernel = "^6.29.5"
 notebook = "^7.2.1"
+matplotlib = "^3.9.2"
+imageio = "^2.35.0"
 
 
 [build-system]

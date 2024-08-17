@@ -35,6 +35,9 @@ class GymEnv(BaseEnv):
 
     def reset(self) -> Any:
         return self.env.reset()
+    
+    def render(self) -> Any:
+        return self.env.render()
 
     def step(self, action: Any) -> Any:
         return self.env.step(action)
