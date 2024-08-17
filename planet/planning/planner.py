@@ -44,7 +44,10 @@ def latent_planning(
         # sample candidate action sequence
         # (J, H, action_size)
         candidate_actions = action_seq.sample(J)
-        candidate_actions = candidate_actions.cuda()
+        candidate_actions = torch.clamp(
+            candidate_actions.cuda(),
+            min=-1.0, max=1.0
+        )
 
         # initialize the state
         state = current_state_belief.sample((J,)).reshape(J, -1)

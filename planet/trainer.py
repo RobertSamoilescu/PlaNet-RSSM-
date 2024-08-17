@@ -283,6 +283,7 @@ class PlanetTrainer:
             # add exploration noise
             if action_noise is not None:
                 action += torch.randn_like(action) * action_noise
+                action = torch.clamp(action, -1.0, 1.0)
 
             # take action in the environment
             action_cpu = action.cpu()
@@ -381,8 +382,11 @@ class PlanetTrainer:
         best_score = -np.inf
         train_steps = self.config["train_config"]["train_steps"]
 
-        checkpoint_path = os.path.join(
+        best_checkpoint_path = os.path.join(
             self.config["train_config"]["checkpoint_dir"], "best_model.pth"
+        )
+        latest_checkpoint_path = os.path.join(
+            self.config["train_config"]["checkpoint_dir"], "latest_model.pth"
         )
         if not os.path.exists(self.config["train_config"]["checkpoint_dir"]):
             os.makedirs(self.config["train_config"]["checkpoint_dir"])
@@ -411,4 +415,7 @@ class PlanetTrainer:
 
                 if mean_reward > best_score:
                     best_score = mean_reward
-                    save_models(self.models, self.optimizers, checkpoint_path)
+                    save_models(self.models, self.optimizers, best_checkpoint_path)
+
+                # save latest model
+                save_models(self.models, self.optimizers, latest_checkpoint_path)
