@@ -14,6 +14,8 @@ tqdm = "^4.66.4"
 dm-control = "^1.0.22"
 opencv-python = "^4.10.0.84"
 gym = {extras = ["box2d"], version = "^0.26.2"}
+ipykernel = "^6.29.5"
+notebook = "^7.2.1"
 
 
 [build-system]
