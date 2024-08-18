@@ -8,22 +8,22 @@ from planet.dataset.env_objects import EnvStep, EnvSequence
 
 class ReplayBuffer:
     def __init__(self, max_len: int = 1_000) -> None:
-        """ Replay buffer for storing sequences of environment steps 
-        
+        """Replay buffer for storing sequences of environment steps
+
         :param max_len: Maximum number of sequences to store
         """
         self.buffer = deque(maxlen=max_len)
 
     def add_sequence(self, sequence: List[EnvStep]) -> None:
-        """ Add a sequence of environment steps to the buffer
-        
+        """Add a sequence of environment steps to the buffer
+
         :param sequence: Sequence to be added
         :return: None
         """
         self.buffer.append(sequence)
 
     def _pad_sequence(self, sequence: List[EnvStep], L: int) -> List[EnvStep]:
-        """ Pad a sequence to length L with zero steps
+        """Pad a sequence to length L with zero steps
 
         :param sequence: Sequence to be padded
         :param L: Length of the padded sequence
@@ -41,7 +41,7 @@ class ReplayBuffer:
         return sequence + [pad_step] * (L - len(sequence))
 
     def _create_sequence(self, sequence: List[EnvStep]) -> EnvSequence:
-        """ Create an EnvSequence object from a list of EnvStep objects
+        """Create an EnvSequence object from a list of EnvStep objects
 
         :param sequence: List of EnvStep objects
         :return: EnvSequence object
@@ -53,8 +53,8 @@ class ReplayBuffer:
         return EnvSequence(observations, actions, rewards, dones)
 
     def sample_sequence(self, L: int) -> EnvSequence:
-        """ Sample a sequence of length L from the buffer
-        
+        """Sample a sequence of length L from the buffer
+
         :param L: Length of the sequence to sample
         :return: Sampled sequence
         """
@@ -68,7 +68,7 @@ class ReplayBuffer:
         return self._create_sequence(sequence)
 
     def sample_batch(self, B: int, L: int) -> EnvSequence:
-        """ Sample a batch of sequences from the buffer
+        """Sample a batch of sequences from the buffer
 
         :param B: Batch size
         :param L: Length of the sequences to sample

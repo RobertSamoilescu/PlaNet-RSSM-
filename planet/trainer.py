@@ -24,7 +24,6 @@ def _gradient_step(optimizers: Dict[str, torch.optim.Optimizer]):
         optimizer.step()
 
 
-
 @torch.no_grad()
 def collect_episode(
     env: Any,
@@ -75,7 +74,10 @@ def collect_episode(
 
         # compute action using latent planning
         action = latent_planning(
-            H=H, I=I, J=J, K=K,
+            H=H,
+            I=I,
+            J=J,
+            K=K,
             hidden_state=hidden_state,
             current_state_belief=posterior_dist,
             deterministic_state_model=models["det_state_model"],
@@ -95,7 +97,7 @@ def collect_episode(
         action_np = action.cpu().numpy()
         next_obs_np, reward, terminated, truncated, _ = env.step(action_np)
 
-        # update episode reward and 
+        # update episode reward and
         # add step to the sequence
         episode_reward += reward
         done = 1 if terminated or truncated else 0
@@ -115,7 +117,7 @@ def collect_episode(
         obs_np = next_obs_np
 
         # update hidden state
-        hidden_state = self.models["det_state_model"](
+        hidden_state = models["det_state_model"](
             hidden_state=hidden_state,
             state=posterior_dist.sample(),
             action=action.unsqueeze(0),
@@ -198,8 +200,8 @@ class PlanetTrainer:
         models: Dict[str, nn.Module],
         config: Dict[str, Any],
     ) -> None:
-        """ Initialize the trainer with models and config.
-        
+        """Initialize the trainer with models and config.
+
         :param models: A dictionary of models
         :param config: A dictionary of configuration parameters
         """
@@ -214,7 +216,7 @@ class PlanetTrainer:
         # initialize optimizers
         self.optimizers = {
             "all_models": torch.optim.Adam(
-                self.all_params, lr=self.config['train_config']['lr']
+                self.all_params, lr=self.config["train_config"]["lr"]
             )
         }
 
@@ -230,7 +232,7 @@ class PlanetTrainer:
 
         # create environment
         self.env = make_env(self.config["env_config"])
-        
+
         # create replay buffer
         self.buffer = ReplayBuffer()
 
@@ -258,8 +260,7 @@ class PlanetTrainer:
 
         # initialize posterior distribution
         posterior_dist = self.models["enc_model"](
-            observation=batch.observations[:, 0], 
-            hidden_state=hidden_state
+            observation=batch.observations[:, 0], hidden_state=hidden_state
         )
 
         # sample initial state
@@ -337,7 +338,7 @@ class PlanetTrainer:
 
         # clip gradients
         torch.nn.utils.clip_grad_norm_(
-            self.all_params, self.config['train_config']['grad_norm_clip']
+            self.all_params, self.config["train_config"]["grad_norm_clip"]
         )
 
         # gradient step
@@ -350,12 +351,10 @@ class PlanetTrainer:
         }
 
     def update_running_stats(
-        self, 
-        stats: Dict[str, float], 
-        running_stats: Dict[str, float]
+        self, stats: Dict[str, float], running_stats: Dict[str, float]
     ) -> Dict[str, float]:
-        """ Update running statistics.
-        
+        """Update running statistics.
+
         :param stats: A dictionary of stats values
         :param running_stats: A dictionary of running statistics
         :return: A dictionary of updated running statistics
@@ -367,8 +366,6 @@ class PlanetTrainer:
                 else 0.99 * running_stats[key] + 0.01 * value
             )
         return running_stats
-
-    
 
     def data_collection(self) -> float:
         """Data collection step."""
@@ -393,23 +390,22 @@ class PlanetTrainer:
         _set_models_train(self.models)
 
         # fit the world model
-        for _ in tqdm(range(self.config["train_config"]["C"])):
+        for _ in tqdm(
+            range(self.config["train_config"]["C"]), desc="Model fit"
+        ):
             stats = self.model_fit_step()
-            running_stats = self.update_running_stats(
-                stats, running_stats
-            )
+            running_stats = self.update_running_stats(stats, running_stats)
 
         # data collection
         stats = self.data_collection()
-        running_stats = self.update_running_stats(
-            stats, running_stats
-        )
+        running_stats = self.update_running_stats(stats, running_stats)
 
         if i % self.config["train_config"]["log_interval"] == 0:
             print(
                 "Iter: %d, "
                 "Loss: %.4f, Obs Loss: %.4f, Reward Loss: %.4f, KL Div: %.4f, "
-                "Collection reward: %.4f" % (
+                "Collection reward: %.4f"
+                % (
                     i,
                     running_stats["loss"],
                     running_stats["obs_loss"],
@@ -426,10 +422,12 @@ class PlanetTrainer:
         num_eval_episodes = self.config["eval_config"]["num_eval_episodes"]
         for _ in tqdm(range(num_eval_episodes), desc="Evaluation"):
             episode_rewards.append(
-                self.collect_episode(
+                collect_episode(
                     env=self.env,
                     models=self.models,
-                    rnn_hidden_size=self.config["model_config"]["rnn_hidden_size"],
+                    rnn_hidden_size=self.config["model_config"][
+                        "rnn_hidden_size"
+                    ],
                     action_size=self.config["model_config"]["action_size"],
                     max_episode_length=self.max_episode_len,
                     H=self.config["train_config"]["H"],
@@ -438,12 +436,12 @@ class PlanetTrainer:
                     K=self.config["train_config"]["K"],
                     action_min=self.config["train_config"]["action_min"],
                     action_max=self.config["train_config"]["action_max"],
-                    action_noise=None
+                    action_noise=None,
                 )[1]
             )
 
         return episode_rewards
-        
+
     def evaluate_step(self, i: int, best_score: Dict[str, Any] = {}) -> None:
         if "mean_reward" not in best_score:
             best_score["mean_reward"] = -np.inf
@@ -456,21 +454,22 @@ class PlanetTrainer:
                 # update best score and save model
                 best_score = mean_reward
                 save_models(
-                    models=self.models, 
-                    optimizers=self.optimizers, 
-                    path=self.best_checkpoint_path
+                    models=self.models,
+                    optimizers=self.optimizers,
+                    path=self.best_checkpoint_path,
                 )
 
             # save latest model
             save_models(
-                models=self.models, 
-                optimizers=self.optimizers, 
-                path=self.latest_checkpoint_path
+                models=self.models,
+                optimizers=self.optimizers,
+                path=self.latest_checkpoint_path,
             )
 
             print(
                 "Iter: %d, Mean Reward: %.4f, Median Reward: %.4f, "
-                "Std Reward: %.4f, Min Reward: %.4f, Max Reward: %.4f" % (
+                "Std Reward: %.4f, Min Reward: %.4f, Max Reward: %.4f"
+                % (
                     i,
                     mean_reward,
                     np.median(rewards),
@@ -494,5 +493,3 @@ class PlanetTrainer:
         for i in range(train_steps):
             self.train_step(i)
             self.evaluate_step(i)
-
-          

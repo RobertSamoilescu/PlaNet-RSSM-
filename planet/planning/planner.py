@@ -39,10 +39,7 @@ def latent_planning(
     :param action_max: The maximum value of the action.
     :return: The first action
     """
-    action_seq = ActionPlanner(
-        H=H, action_size=action_size, 
-        action_min=action_min, action_max=action_max
-    )
+    action_seq = ActionPlanner(H=H, action_size=action_size)
     hidden_state = hidden_state.repeat(J, 1)
 
     for _ in range(I):
@@ -52,9 +49,7 @@ def latent_planning(
         # (J, H, action_size)
         candidate_actions = action_seq.sample(J)
         candidate_actions = torch.clamp(
-            candidate_actions.cuda(), 
-            min=action_min, 
-            max=action_max
+            candidate_actions.cuda(), min=action_min, max=action_max
         )
 
         # initialize the state
