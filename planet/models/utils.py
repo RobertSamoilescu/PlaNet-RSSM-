@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from typing import Any, Dict
 
@@ -6,6 +7,56 @@ from planet.models.encoder import EncoderModel, ImageEncoderModel
 from planet.models.observation import ObservationModel, ImageObservationModel
 from planet.models.stochastic_state import StochasticStateModel
 from planet.models.determinstic_state import DeterministicStateModel
+
+
+def zero_grad(optimizers: Dict[str, torch.optim.Optimizer]):
+    for optimizer in optimizers.values():
+        optimizer.zero_grad()
+
+
+def gradient_step(optimizers: Dict[str, torch.optim.Optimizer]):
+    for optimizer in optimizers.values():
+        optimizer.step()
+
+
+def set_models_eval(models: Dict[str, nn.Module]):
+    for model in models.values():
+        model.eval()
+
+
+def set_models_train(models: Dict[str, nn.Module]):
+    for model in models.values():
+        model.train()
+
+
+def save_models(
+    models: Dict[str, nn.Module],
+    optimizers: Dict[str, torch.optim.Optimizer],
+    path: str,
+):
+    checkpoint = {}
+
+    for key, model in models.items():
+        checkpoint[key] = model.state_dict()
+
+    for key, optimizer in optimizers.items():
+        checkpoint[key] = optimizer.state_dict()
+
+    torch.save(checkpoint, path)
+
+
+def load_models(
+    models: Dict[str, nn.Module],
+    optimizers: Dict[str, torch.optim.Optimizer],
+    path: str,
+):
+    checkpoint = torch.load(path)
+
+    for key, model in models.items():
+        model.load_state_dict(checkpoint[key])
+
+    for key, optimizer in optimizers.items():
+        optimizer.load_state_dict(checkpoint[key])
 
 
 def get_models(config: Dict[str, Any]) -> Dict[str, nn.Module]:
