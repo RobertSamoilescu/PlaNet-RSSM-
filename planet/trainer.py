@@ -131,7 +131,7 @@ def _compute_observation_loss(
 ) -> torch.Tensor:
     mse_loss = torch.nn.functional.mse_loss(obs, gt_obs, reduction="none")
     mse_loss = mse_loss.reshape(mse_loss.shape[0], -1)
-    return (mse_loss.sum(axis=-1) * mask).sum()
+    return (mse_loss.sum(axis=-1) * mask).sum()  # type: ignore[call-overload]
 
 
 def _compute_reward_loss(
@@ -214,7 +214,7 @@ class PlanetTrainer:
             self.all_params += list(model.parameters())
 
         # initialize optimizers
-        self.optimizers = {
+        self.optimizers: Dict[str, torch.optim.Optimizer] = {
             "all_models": torch.optim.Adam(
                 self.all_params, lr=self.config["train_config"]["lr"]
             )
@@ -243,7 +243,7 @@ class PlanetTrainer:
 
     def model_fit_step(self) -> Dict[str, float]:
         # define loss variables
-        obs_loss = reward_loss = kl_div = 0
+        obs_loss = reward_loss = kl_div = torch.tensor(0.0)
         device = self.config["model_config"].get("device", "cuda")
 
         # sample a batch of experiences
@@ -367,7 +367,7 @@ class PlanetTrainer:
             )
         return running_stats
 
-    def data_collection(self) -> float:
+    def data_collection(self) -> Dict[str, float]:
         """Data collection step."""
         sequence, reward = collect_episode(
             env=self.env,
@@ -442,17 +442,20 @@ class PlanetTrainer:
 
         return episode_rewards
 
-    def evaluate_step(self, i: int, best_score: Dict[str, Any] = {}) -> None:
+    def evaluate_step(self, i: int, best_score: Dict[str, float] = {}) -> None:
+        eval_interval = self.config["eval_config"]["eval_interval"]
+        train_steps = self.config["train_config"]["train_steps"]
+
         if "mean_reward" not in best_score:
             best_score["mean_reward"] = -np.inf
 
-        if i % self.config["eval_config"]["eval_interval"] == 0:
+        if i % eval_interval == 0 or i == train_steps - 1:
             rewards = self._evaluate()
-            mean_reward = np.mean(rewards)
+            mean_reward = np.mean(rewards).item()
 
             if mean_reward > best_score["mean_reward"]:
                 # update best score and save model
-                best_score = mean_reward
+                best_score["mean_reward"] = mean_reward
                 save_models(
                     models=self.models,
                     optimizers=self.optimizers,

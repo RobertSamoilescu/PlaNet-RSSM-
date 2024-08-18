@@ -1,8 +1,7 @@
 import torch
 import random
-import numpy as np
+from typing import List
 from collections import deque
-from typing import List, Optional
 from planet.dataset.env_objects import EnvStep, EnvSequence
 
 
@@ -12,7 +11,7 @@ class ReplayBuffer:
 
         :param max_len: Maximum number of sequences to store
         """
-        self.buffer = deque(maxlen=max_len)
+        self.buffer: deque = deque(maxlen=max_len)
 
     def add_sequence(self, sequence: List[EnvStep]) -> None:
         """Add a sequence of environment steps to the buffer

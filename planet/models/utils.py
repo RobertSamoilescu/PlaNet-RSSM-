@@ -50,7 +50,7 @@ def get_models(config: Dict[str, Any]) -> Dict[str, nn.Module]:
         rnn_hidden_size=model_config["rnn_hidden_size"],
         state_size=model_config["state_size"],
         observation_size=model_config["observation_size"],
-        hidden_size=model_config["hidden_size"],
+        hidden_size=model_config["hidden_size"],  # type: ignore[call-arg]
     ).to(model_config["device"])
 
     # construct the encoder model

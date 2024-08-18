@@ -1,6 +1,6 @@
 import os
 
-os.environ["MUJOCO_GL"] = "egl"
+os.environ["MUJOCO_GL"] = "egl"  # noqa: E402
 
 import gym
 import numpy as np

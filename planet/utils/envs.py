@@ -1,5 +1,5 @@
 import gym
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from planet.utils.wrappers import (
     RepeatActionWrapper,
     GymPixelWrapper,
@@ -54,8 +54,8 @@ class DMControlEnv(BaseEnv):
                 "render_kwargs", {"width": 64, "height": 64, "camera_id": 0}
             ),
         )
-        self.env = RepeatActionWrapper(self.env, skip=config.get("skip", 4))
-        self.env = ImagePreprocessorWrapper(self.env)
+        self.env = RepeatActionWrapper(self.env, skip=config.get("skip", 4))  # type: ignore[arg-type, assignment]  # noqa: E501
+        self.env = ImagePreprocessorWrapper(self.env)  # type: ignore[arg-type, assignment]  # noqa: E501
 
     def reset(self) -> Any:
         return self.env.reset()

@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch import Tensor
-from typing import Tuple
 
 
 class StochasticStateModel(nn.Module):

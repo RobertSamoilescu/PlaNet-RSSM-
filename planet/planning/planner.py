@@ -1,9 +1,5 @@
 import torch
 import torch.nn as nn
-
-from typing import Tuple
-from tqdm import tqdm
-
 from planet.planning.action import ActionPlanner
 
 
@@ -30,7 +26,8 @@ def latent_planning(
     :param J: Candidates per iteration.
     :param K: Top-K candidates to keep.
     :param hidden_state: The hidden state.
-    :param current_state_belief: Tuple containing the mean and log std of the current state belief.
+    :param current_state_belief: Tuple containing the mean and log std of the
+        current state belief.
     :param deterministic_state_model: The deterministic state model.
     :param stochastic_state_model: The transition model.
     :param reward_model: The reward model.

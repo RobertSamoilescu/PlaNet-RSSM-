@@ -18,7 +18,8 @@ def sample_random_sequences(
     :param env: The environment to sample from.
     :param num_sequences: The number of sequences to sample.
     :param max_sequence_len: The maximum length of each sequence.
-    :return: A list of sequences, where each sequence is a list of EnvStep objects.
+    :return: A list of sequences, where each sequence is a list
+        of EnvStep objects.
     """
     sequences = []
 
