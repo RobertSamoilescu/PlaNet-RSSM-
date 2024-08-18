@@ -255,25 +255,23 @@ class PlanetTrainer:
             "kl_div": kl_div.item(),
         }
 
-    def update_model_running_loss(
-        self, loss: Dict[str, float], running_stats: Dict[str, float]
-    ) -> None:
-        for key, value in loss.items():
+    def update_running_stats(
+        self, 
+        stats: Dict[str, float], 
+        running_stats: Dict[str, float]
+    ) -> Dict[str, float]:
+        """ Update running statistics.
+        
+        :param stats: A dictionary of stats values
+        :param running_stats: A dictionary of running statistics
+        :return: A dictionary of updated running statistics
+        """
+        for key, value in stats.items():
             running_stats[key] = (
                 value
                 if running_stats.get(key) is None
                 else 0.99 * running_stats[key] + 0.01 * value
             )
-        return running_stats
-
-    def update_data_collection_running_reward(
-        self, episode_reward: float, running_stats: Dict[str, float]
-    ) -> float:
-        running_stats["reward"] = (
-            episode_reward
-            if running_stats.get("reward") is None
-            else 0.9 * running_stats["reward"] + 0.1 * episode_reward
-        )
         return running_stats
 
     @torch.no_grad()
@@ -355,35 +353,41 @@ class PlanetTrainer:
 
     def data_collection(self) -> float:
         """Data collection step."""
-        sequence, episode_reward = self.collect_episode(
+        sequence, reward = self.collect_episode(
             env=self.env,
             action_noise=self.config["train_config"]["action_noise"],
         )
         self.buffer.add_sequence(sequence)
-        return episode_reward
+        return {"reward": reward}
 
     def train_step(self, i: int, running_stats: Dict[str, float] = {}):
         _set_models_train(self.models)
 
         # fit the world model
         for _ in tqdm(range(self.config["train_config"]["C"])):
-            model_loss = self.model_fit_step()
-            running_stats = self.update_model_running_loss(
-                model_loss, running_stats
+            stats = self.model_fit_step()
+            running_stats = self.update_running_stats(
+                stats, running_stats
             )
 
         # data collection
-        reward = self.data_collection()
-        running_stats = self.update_data_collection_running_reward(
-            reward, running_stats
+        stats = self.data_collection()
+        running_stats = self.update_running_stats(
+            stats, running_stats
         )
 
         if i % self.config["train_config"]["log_interval"] == 0:
             print(
-                f"Iter: {i}, "
-                f"Loss: {running_stats['loss']}, Obs Loss: {running_stats['obs_loss']}, "
-                f"Reward Loss: {running_stats['reward_loss']}, KL Div: {running_stats['kl_div']}, "
-                f"Collection reward: {running_stats['reward']}",
+                "Iter: %d,"
+                "Loss: %.4f, Obs Loss: %.4f, Reward Loss: %.4f, KL Div: %.4f, "
+                "Collection reward: %.4f" % (
+                    i,
+                    running_stats["loss"],
+                    running_stats["obs_loss"],
+                    running_stats["reward_loss"],
+                    running_stats["kl_div"],
+                    running_stats["reward"],
+                )
             )
 
     def evaluate(self, seed: int = 0) -> float:
