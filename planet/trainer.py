@@ -243,8 +243,10 @@ class PlanetTrainer:
 
     def model_fit_step(self) -> Dict[str, float]:
         # define loss variables
-        obs_loss = reward_loss = kl_div = torch.tensor(0.0)
         device = self.config["model_config"].get("device", "cuda")
+        obs_loss = torch.tensor(0.0, device=device)
+        reward_loss = torch.tensor(0.0, device=device)
+        kl_div = torch.tensor(0.0, device=device)
 
         # sample a batch of experiences
         batch = self.buffer.sample_batch(
