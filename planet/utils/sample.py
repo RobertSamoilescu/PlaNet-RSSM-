@@ -4,7 +4,7 @@ import torch
 from typing import List
 
 from planet.dataset.env_objects import EnvStep
-from planet.dataset.buffer import SequenceBuffer
+from planet.dataset.buffer import ReplayBuffer
 
 
 def sample_random_sequences(
@@ -59,7 +59,7 @@ def init_buffer(
     env,
     num_sequences=50,
     max_sequence_len=1000,
-) -> SequenceBuffer:
+) -> ReplayBuffer:
 
     # sample random sequences from the environment
     sequences = sample_random_sequences(

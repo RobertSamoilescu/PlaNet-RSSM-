@@ -45,8 +45,6 @@ if __name__ == "__main__":
     set_seed(args.seed)
     models = get_models(config)
 
-
-
-    # trainer = PlanetTrainer(models=models, config=config)
-    # trainer.fit()
+    trainer = PlanetTrainer(models=models, config=config)
+    trainer.fit()
 

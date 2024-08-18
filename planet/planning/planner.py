@@ -45,8 +45,7 @@ def latent_planning(
         # (J, H, action_size)
         candidate_actions = action_seq.sample(J)
         candidate_actions = torch.clamp(
-            candidate_actions.cuda(),
-            min=-1.0, max=1.0
+            candidate_actions.cuda(), min=-1.0, max=1.0
         )
 
         # initialize the state
@@ -59,17 +58,16 @@ def latent_planning(
                 state=state,
                 action=candidate_actions[:, t],
             )
-            
+
             # sample the next state
             # (J, state_size)
             prior_dist = stochastic_state_model(hidden_state=hidden_state_i)
             state = prior_dist.sample()
 
             reward_sum += reward_model(
-                hidden_state=hidden_state_i, 
-                state=state
+                hidden_state=hidden_state_i, state=state
             ).reshape(J)
-                
+
         # select the top-K candidates
         # (K, H, action_size)
         top_k_indices = torch.argsort(reward_sum, descending=True)[:K].tolist()

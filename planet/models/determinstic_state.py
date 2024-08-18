@@ -29,7 +29,7 @@ class DeterministicStateModel(nn.Module):
         self.gru = nn.GRUCell(hidden_size, rnn_hidden_size)
 
     def forward(
-        self, rnn_hidden_state: Tensor, state: Tensor, action: Tensor
+        self, hidden_state: Tensor, state: Tensor, action: Tensor
     ) -> Tuple[Tensor, Tensor]:
         """Forward pass
 
@@ -40,4 +40,4 @@ class DeterministicStateModel(nn.Module):
         """
         x = torch.cat([state, action], dim=-1)
         x = F.relu(self.fc(x))
-        return self.gru(x, rnn_hidden_state)
+        return self.gru(x, hidden_state)

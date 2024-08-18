@@ -23,14 +23,14 @@ class RewardModel(nn.Module):
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, 1)
 
-    def forward(self, rnn_hidden_state: Tensor, state: Tensor) -> Tensor:
+    def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
         """Forward pass
 
         :param hidden_state: hidden state of the rnn
         :param state: state tensor
         :return: reward tensor
         """
-        x = torch.cat([rnn_hidden_state, state], dim=-1)
+        x = torch.cat([hidden_state, state], dim=-1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return self.fc3(x)

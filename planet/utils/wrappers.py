@@ -81,7 +81,7 @@ class ImagePreprocessorWrapper(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
 
         shape = env.observation_space.shape
-        shape = (shape[-1], *shape[1:])
+        shape = (shape[-1], *shape[0:2])
         self.observation_space = gym.spaces.Box(
             low=-0.5, high=0.5, shape=shape, dtype=np.float32
         )

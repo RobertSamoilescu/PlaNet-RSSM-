@@ -25,14 +25,14 @@ class ObservationModel(nn.Module):
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, observation_size)
 
-    def forward(self, rnn_hidden_state: Tensor, state: Tensor) -> Tensor:
+    def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
         """Forward pass
 
         :param hidden_state: hidden state of the rnn
         :param state: state tensor
         :return: observation tensor
         """
-        x = torch.cat([rnn_hidden_state, state], dim=-1)
+        x = torch.cat([hidden_state, state], dim=-1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
@@ -61,14 +61,14 @@ class ImageObservationModel(nn.Module):
         self.dc3 = nn.ConvTranspose2d(64, 32, kernel_size=6, stride=2)
         self.dc4 = nn.ConvTranspose2d(32, 3, kernel_size=6, stride=2)
 
-    def forward(self, rnn_hidden_state: Tensor, state: Tensor) -> Tensor:
+    def forward(self, hidden_state: Tensor, state: Tensor) -> Tensor:
         """Forward pass
 
         :param hidden_state: hidden state of the rnn
         :param state: state tensor
         :return: observation tensor
         """
-        x = self.fc(torch.cat([state, rnn_hidden_state], dim=1))
+        x = self.fc(torch.cat([state, hidden_state], dim=1))
         x = x.view(x.size(0), 1024, 1, 1)
         x = F.relu(self.dc1(x))
         x = F.relu(self.dc2(x))

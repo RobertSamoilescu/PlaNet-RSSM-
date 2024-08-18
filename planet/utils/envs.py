@@ -35,7 +35,7 @@ class GymEnv(BaseEnv):
 
     def reset(self) -> Any:
         return self.env.reset()
-    
+
     def render(self) -> Any:
         return self.env.render()
 

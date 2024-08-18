@@ -84,7 +84,7 @@ class ImageEncoderModel(nn.Module):
         self.std_head = nn.Linear(hidden_size, state_size)
 
     def forward(
-        self, rnn_hidden_state: Tensor, observation: Tensor
+        self, hidden_state: Tensor, observation: Tensor
     ) -> torch.distributions.Normal:
         """Forward pass
 
@@ -99,7 +99,7 @@ class ImageEncoderModel(nn.Module):
             observation.size(0), -1
         )
 
-        x = torch.cat([rnn_hidden_state, observation], dim=-1)
+        x = torch.cat([hidden_state, observation], dim=-1)
         x = F.relu(self.fc(x))
         mean = self.mean_head(x)
         std = F.softplus(self.std_head(x)) + self.min_std

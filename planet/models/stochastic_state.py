@@ -27,13 +27,13 @@ class StochasticStateModel(nn.Module):
         self.mean_head = nn.Linear(hidden_size, state_size)
         self.std_head = nn.Linear(hidden_size, state_size)
 
-    def forward(self, rnn_hidden_state: Tensor) -> torch.distributions.Normal:
+    def forward(self, hidden_state: Tensor) -> torch.distributions.Normal:
         """Forward pass
 
         :param hidden_state: hidden state of the rnn
         :return: normal distribution of the state
         """
-        x = F.relu(self.fc(rnn_hidden_state))
+        x = F.relu(self.fc(hidden_state))
         mean = self.mean_head(x)
         std = F.softplus(self.std_head(x)) + self.min_std
         return torch.distributions.Normal(mean, std)
