@@ -19,6 +19,8 @@ def latent_planning(
     stochastic_state_model: nn.Module,
     reward_model: nn.Module,
     action_size: int,
+    action_min: float = -1.0,
+    action_max: float = 1.0,
 ) -> torch.Tensor:
     """
     Implement the latent planning algorithm.
@@ -33,19 +35,26 @@ def latent_planning(
     :param stochastic_state_model: The transition model.
     :param reward_model: The reward model.
     :param action_size: The size of the action space.
+    :param action_min: The minimum value of the action.
+    :param action_max: The maximum value of the action.
     :return: The first action
     """
-    action_seq = ActionPlanner(H=H, action_size=action_size)
+    action_seq = ActionPlanner(
+        H=H, action_size=action_size, 
+        action_min=action_min, action_max=action_max
+    )
     hidden_state = hidden_state.repeat(J, 1)
 
-    for i in range(I):
+    for _ in range(I):
         reward_sum = torch.zeros((J,)).cuda()
 
         # sample candidate action sequence
         # (J, H, action_size)
         candidate_actions = action_seq.sample(J)
         candidate_actions = torch.clamp(
-            candidate_actions.cuda(), min=-1.0, max=1.0
+            candidate_actions.cuda(), 
+            min=action_min, 
+            max=action_max
         )
 
         # initialize the state

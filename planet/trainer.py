@@ -333,6 +333,8 @@ class PlanetTrainer:
                 stochastic_state_model=models["stoch_state_model"],
                 reward_model=models["reward_obs_model"],
                 action_size=action_size,
+                action_min=action_min,
+                action_max=action_max,
             )
 
             # add exploration noise
