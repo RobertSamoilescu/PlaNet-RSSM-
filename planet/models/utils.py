@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from planet.models.reward import RewardModel
 from planet.models.encoder import EncoderModel, ImageEncoderModel
@@ -47,16 +47,17 @@ def save_models(
 
 def load_models(
     models: Dict[str, nn.Module],
-    optimizers: Dict[str, torch.optim.Optimizer],
-    path: str,
+    optimizers: Optional[Dict[str, torch.optim.Optimizer]] = None,
+    path: str = "checkpoints/best_model.pth",
 ):
     checkpoint = torch.load(path)
 
     for key, model in models.items():
         model.load_state_dict(checkpoint[key])
 
-    for key, optimizer in optimizers.items():
-        optimizer.load_state_dict(checkpoint[key])
+    if optimizers is not None:
+        for key, optimizer in optimizers.items():
+            optimizer.load_state_dict(checkpoint[key])
 
 
 def get_models(config: Dict[str, Any]) -> Dict[str, nn.Module]:

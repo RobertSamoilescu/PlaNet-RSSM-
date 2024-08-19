@@ -201,7 +201,7 @@ class PlanetTrainer:
 
     def data_collection(self) -> Dict[str, float]:
         """Data collection step."""
-        sequence, reward = collect_episode(
+        episode = collect_episode(
             env=self.env,
             models=self.models,
             rnn_hidden_size=self.config["model_config"]["rnn_hidden_size"],
@@ -215,8 +215,8 @@ class PlanetTrainer:
             action_max=self.config["train_config"]["action_max"],
             action_noise=self.config["train_config"]["action_noise"],
         )
-        self.buffer.add_sequence(sequence)
-        return {"reward": reward}
+        self.buffer.add_sequence(episode["sequence"])
+        return {"reward": episode["reward"]}
 
     def train_step(self, i: int, running_stats: Dict[str, float] = {}):
         set_models_train(self.models)

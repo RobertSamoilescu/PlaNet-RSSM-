@@ -23,7 +23,8 @@ def collect_episode(
     action_max: float = 1.0,
     action_noise: Optional[float] = None,
     device: str = "cuda",
-) -> Tuple[List[EnvStep], float]:
+    return_obs: bool = False,
+) -> Dict[str, Any]:
     """Collect an episode using the world model.
 
     :param env: The environment to collect the episode
@@ -37,18 +38,28 @@ def collect_episode(
     :param action_max: The maximum action value
     :param action_noise: The action noise
     :param device: The device to run the model
+    :param return_obs: Whether to return the observations
     :return: A tuple of list of environment steps and the total reward
     """
     set_models_eval(models)
 
     # reset environment
-    sequence, episode_reward = [], 0
-    obs_np, _ = env.reset()
+    episode = {
+        "sequence": [],
+        "reward": 0,
+    }
 
-    # initialize hidden state
+    if return_obs:
+        episode["observations"] = []
+
+    # reset env and initialize hidden state
+    obs_np, _ = env.reset()
     hidden_state = torch.zeros(1, rnn_hidden_size).to(device)
 
     for _ in tqdm(range(max_episode_length), desc="Collecting"):
+        if return_obs:
+            episode["observations"].append(env.render())
+
         # compute posterior distribution based on the current observation
         obs = torch.from_numpy(obs_np).float().to(device)
         posterior_dist = models["enc_model"](
@@ -83,9 +94,9 @@ def collect_episode(
 
         # update episode reward and
         # add step to the sequence
-        episode_reward += reward
+        episode["reward"] += reward
         done = 1 if terminated or truncated else 0
-        sequence.append(
+        episode["sequence"].append(
             EnvStep(
                 observation=torch.from_numpy(obs_np),
                 action=torch.from_numpy(action_np),
@@ -107,4 +118,4 @@ def collect_episode(
             action=action.unsqueeze(0),
         )
 
-    return sequence, episode_reward
+    return episode
