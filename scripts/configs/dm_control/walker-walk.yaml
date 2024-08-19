@@ -1,9 +1,12 @@
 env_config:
-    env_type: gym
-    id: HalfCheetah-v4
-    kwargs:
-        render_mode: rgb_array
-    skip: 4
+    env_type: dm_control
+    domain_name: walker 
+    task_name: walk
+    render_kwargs:
+        width: 64
+        height: 64
+        camera_id: 0
+    skip: 2
 
 train_config:
     S: 5
@@ -20,17 +23,20 @@ train_config:
     action_min: -1.0
     action_max: 1.0
     free_nats: 3.0
-    checkpoint_dir: checkpoints
+    checkpoint_dir: checkpoints-walker-walk
     T: 1000
     lr: 0.0006
     grad_norm_clip: 100
 
 model_config:
     rnn_hidden_size: 200
+    observation_size: 1024
+    action_size: 6
     state_size: 30
     hidden_size: 200
     min_std: 0.1
     device: cuda
+
 
 eval_config:
     eval_interval: 25

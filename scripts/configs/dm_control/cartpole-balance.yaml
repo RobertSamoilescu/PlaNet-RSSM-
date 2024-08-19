@@ -1,12 +1,12 @@
 env_config:
     env_type: dm_control
-    domain_name: walker 
-    task_name: walk
+    domain_name: cartpole 
+    task_name: balance
     render_kwargs:
         width: 64
         height: 64
         camera_id: 0
-    skip: 2
+    skip: 8
 
 train_config:
     S: 5
@@ -23,7 +23,7 @@ train_config:
     action_min: -1.0
     action_max: 1.0
     free_nats: 3.0
-    checkpoint_dir: checkpoints
+    checkpoint_dir: checkpoints-cartpole-balance
     T: 1000
     lr: 0.0006
     grad_norm_clip: 100
