@@ -269,7 +269,7 @@ class PlanetTrainer:
                     action_min=self.config["train_config"]["action_min"],
                     action_max=self.config["train_config"]["action_max"],
                     action_noise=None,
-                )[1]
+                )["reward"]
             )
 
         return episode_rewards

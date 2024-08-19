@@ -31,7 +31,7 @@ train_config:
 model_config:
     rnn_hidden_size: 200
     observation_size: 1024
-    action_size: 6
+    action_size: 1
     state_size: 30
     hidden_size: 200
     min_std: 0.1
