@@ -18,9 +18,9 @@ class EnvSequence:
     rewards: Tensor
     dones: Tensor
 
-    def cuda(self) -> Self:
-        self.observations = self.observations.float().cuda()
-        self.actions = self.actions.float().cuda()
-        self.rewards = self.rewards.float().cuda()
-        self.dones = self.dones.float().cuda()
+    def to(self, device: str) -> Self:
+        self.observations = self.observations.float().to(device)
+        self.actions = self.actions.float().to(device)
+        self.rewards = self.rewards.float().to(device)
+        self.dones = self.dones.float().to(device)
         return self

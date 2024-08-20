@@ -1,0 +1,37 @@
+env_config:
+    env_type: gym
+    id: HalfCheetah-v4
+    kwargs:
+        render_mode: rgb_array
+    skip: 4
+
+train_config:
+    S: 5
+    train_steps: 1000
+    C: 100
+    B: 50
+    L: 50
+    H: 15
+    I: 10
+    J: 1000
+    K: 100
+    log_interval: 1
+    action_noise: 0.3
+    action_min: -1.0
+    action_max: 1.0
+    free_nats: 3.0
+    checkpoint_dir: checkpoints-half-cheetah
+    T: 1000
+    lr: 0.0006
+    grad_norm_clip: 100
+
+model_config:
+    rnn_hidden_size: 200
+    state_size: 30
+    hidden_size: 200
+    min_std: 0.1
+    device: cuda
+
+eval_config:
+    eval_interval: 25
+    num_eval_episodes: 5
