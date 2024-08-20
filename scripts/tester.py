@@ -26,6 +26,12 @@ def get_args() -> argparse.Namespace:
         default=5,
         help="Number of episodes to test",
     )
+    parser.add_argument(
+        "-J",
+        type=int,
+        default=1000,
+        help="Number of action candidates to sample"
+    )
     return parser.parse_args()
 
 
@@ -45,6 +51,9 @@ if __name__ == "__main__":
         config["model_config"]["observation_size"] = np.prod(
             env.observation_space.shape
         )
+
+    # add J to config
+    config["train_config"]["J"] = args.J  
 
     # load models
     path = os.path.join(

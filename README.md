@@ -2,6 +2,7 @@
 This repo contains some naive implementations (only RSSM) of a purely model-based reinforcement learning algorithm that solves control tasks from images by efficient planning in a learned latent space. 
 
 <img src="gifs/walker-walk.gif" alt="walker-walk" width="256" />
+<img src="gifs/cartpole-balance.gif" alt="walker-walk" width="256" />
 
 
 ## Installation
@@ -21,4 +22,15 @@ This project implements  Learning Latent Dynamics for Planning from Pixels (RSSM
 
 ## Run 
 
-TODO
+To run the training script
+```shell
+cd scripts
+python trainer.py --config config/path/here
+```
+
+
+To run the evaluation script
+```bash
+cd scripts
+python tester.py --config config/path/here
+```
