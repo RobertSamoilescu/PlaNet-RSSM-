@@ -4,6 +4,7 @@ This repo contains some naive implementations (only RSSM) of a purely model-base
 <p align="left">
   <img src="gifs/walker-walk.gif" alt="walker-walk" width="256" />
   <img src="gifs/cartpole-balance.gif" alt="cartpole-balance" width="256" />
+  <img src="gifs/cheetah-run.gif" alt="cheetah-run" width="256" />
 </p>
 
 ## Installation
